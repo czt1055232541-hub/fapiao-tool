@@ -74,6 +74,12 @@ def run(
 
     for group in groups:
         if group.invoice is None:
+            for att in group.companions:
+                skipped["attachments"].append({
+                    "mail_uid": group.mail.uid, "subject": group.mail.subject,
+                    "filename": att.filename,
+                    "reason": "附件没有对应的发票版式文件（PDF），未纳入整理",
+                })
             for att in group.itineraries:
                 skipped["orphan_itineraries"].append({
                     "mail_uid": group.mail.uid,
@@ -85,12 +91,14 @@ def run(
                     orphan_itineraries.append((att.path, att.filename))
             continue
         record, _meta, extra = classify.prepare(group, cfg)
-        records.append(record)
         for item in extra:
             skipped["attachments"].append({
                 "mail_uid": item.mail_uid, "subject": item.subject,
                 "filename": item.filename, "reason": item.reason,
             })
+        if record is None:
+            continue
+        records.append(record)
         for att in group.companions:
             if att.role == "ofd" and not archive_cfg.get("keepOfd"):
                 skipped["attachments"].append({

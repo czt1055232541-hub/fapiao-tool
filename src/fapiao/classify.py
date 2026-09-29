@@ -25,6 +25,10 @@ R_TAXI_NO_CITY = "打车发票未匹配行程单，城市待核"
 R_UNPARSABLE = "无法解析发票内容"
 R_AMOUNT_MISMATCH = "行程单金额与发票金额不一致"
 R_NO_PDF = "缺少PDF版发票文件"
+R_NOT_AN_INVOICE = "附件不像发票，未纳入整理"
+
+# 强特征：出现任意一个基本可以断定这是发票版式文件；普通 PDF（论文、策略稿）不会有。
+INVOICE_MARKERS = ("电子发票", "铁路电子客票", "价税合计", "发票号码", "增值税", "发票代码")
 
 PURPOSE_TRIP = "差旅费"
 PURPOSE_ENTERTAIN = "招待费"
@@ -81,8 +85,26 @@ def _text_of(path: str) -> tuple[str, str, str]:
     return extract.read_pdf_text(Path(path))
 
 
-def prepare(group: Group, cfg: dict) -> tuple[Record, Meta, list[Skipped]]:
-    """把一组附件转成一条待定稿记录。"""
+def is_probable_invoice(meta: Meta, raw_text: str, filename: str, has_xml: bool, has_image: bool) -> bool:
+    """判断这组附件到底是不是一张发票。
+
+    邮箱里混着各种 PDF（通知、论文、策略稿）。不设这道闸门，它们会被当成"抬头待核、
+    金额 0"的发票塞进存疑目录，把真正需要人工看的东西淹掉。
+    """
+    if meta.invoice_number and meta.invoice_number != "未识别":
+        return True
+    if meta.total is not None:
+        return True
+    if has_xml or has_image:
+        return True
+    if "发票" in (filename or ""):
+        return True
+    haystack = raw_text or ""
+    return any(marker in haystack for marker in INVOICE_MARKERS)
+
+
+def prepare(group: Group, cfg: dict) -> tuple[Record | None, Meta, list[Skipped]]:
+    """把一组附件转成一条待定稿记录；不像发票时返回 None 并留痕。"""
     skipped: list[Skipped] = []
     meta = Meta()
     itinerary = extract.ItineraryMeta()
@@ -134,6 +156,13 @@ def prepare(group: Group, cfg: dict) -> tuple[Record, Meta, list[Skipped]]:
             Skipped(kind="itinerary", reason="同一发票带多份行程单，多余的一份未归档",
                     mail_uid=group.mail.uid, subject=group.mail.subject, filename=extra.filename)
         )
+
+    if not is_probable_invoice(meta, raw_text, group.key, xml_att is not None, image_att is not None):
+        skipped.append(
+            Skipped(kind="attachment", reason=R_NOT_AN_INVOICE, mail_uid=group.mail.uid,
+                    subject=group.mail.subject, filename=group.key)
+        )
+        return None, meta, skipped
 
     record = _build_record(group, meta, itinerary, cfg, raw_text, invoice_pdf, itinerary_att, xml_att, image_att)
     return record, meta, skipped
@@ -221,6 +250,10 @@ def _location_and_date(
         when = f"{start}至{end}" if start and end and start != end else (start or meta.issue_date or "日期待核")
         city = extract.hotel_city(group.mail.subject, group.mail.text) or "地点待核"
         return city, when
+    if kind == KIND_ENTERTAIN:
+        # 餐饮发票正文里不写城市，只能从主题/销售方名称里认（参考实现也是这么做的）。
+        city = extract.hotel_city(group.mail.subject, group.mail.text, meta.seller_name) or "地点待核"
+        return city, (meta.issue_date or "日期待核")
     return "地点待核", (meta.issue_date or "日期待核")
 
 
@@ -303,8 +336,6 @@ def _initial_reasons(
         reasons.append(R_NO_PDF)
     if record.kind == KIND_TAXI and itinerary_att is None:
         reasons.append(R_TAXI_NO_CITY)
-    if record.kind == KIND_TAXI and itinerary.cities and home not in itinerary.cities:
-        reasons.append(f"行程单城市为{'-'.join(itinerary.cities)}，非{home}市内行程")
     return reasons
 
 
@@ -339,6 +370,9 @@ def cluster_trips(records: list[Record], cfg: dict) -> list[TripCluster]:
         city = _trip_city(record, home)
         if not city or city in {"城市待核", "地点待核", "铁路地点待核", "航程待核"}:
             continue
+        if city == home:
+            # 本市支出不是"行程"，不建行程文件夹、也不要求杭州往返闭环。
+            continue
         by_city.setdefault(city, []).append(record)
 
     clusters: list[TripCluster] = []
@@ -365,9 +399,20 @@ def cluster_trips(records: list[Record], cfg: dict) -> list[TripCluster]:
 
 
 def _trip_city(record: Record, home: str) -> str:
-    """记录 → 行程城市。铁路的 location 是"站点-站点"，必须先化成城市再比。"""
+    """记录 → 行程城市。
+
+    location 可能是三种形态：单个城市（杭州 / 上海）、站点对（杭州西-温州南）、
+    航段（深圳-杭州）。后两种都要拆开取"第一个不是出发地的城市"。
+    """
     if record.kind in (KIND_RAIL, KIND_RAIL_REFUND):
         return _rail_trip_city(record.location, home)
+    parts = [p.strip() for p in (record.location or "").split("-") if p.strip()]
+    if len(parts) > 1:
+        for part in parts:
+            city = extract.station_city(part) if record.kind == KIND_FLIGHT else part
+            if city and city != home:
+                return city
+        return ""
     return record.location or ""
 
 
@@ -403,6 +448,8 @@ def apply_trips(records: list[Record], clusters: list[TripCluster], cfg: dict) -
 
     for record in records:
         if record.purpose != PURPOSE_TRIP or record.kind == KIND_ENTERTAIN:
+            continue
+        if _trip_city(record, home) == home:
             continue
         cluster = lookup.get(record.invoice_number)
         if cluster is None:

@@ -120,13 +120,20 @@ class MailFetcher:
             pass
 
     def search_uids(self, mailbox: str, since: date, before: date) -> list[bytes]:
+        """按日期窗口搜索。
+
+        **绝对不要给条件加括号**：QQ IMAP 对 "(SINCE ... BEFORE ...)" 会
+        **静默返回整箱邮件**（实测：带括号 1093 封 = 全部；不带括号 48 封 = 正确窗口）。
+        这是"错但不报错"的坑，会一次性把整个邮箱的附件都抓下来。
+        日期也按 RFC 3501 用裸原子（date 不是 astring，不需要引号）。
+        """
         self.conn.select(mailbox, readonly=True)
-        criteria = f'(SINCE "{imap_date(since)}" BEFORE "{imap_date(before)}")'
-        status, data = self.conn.uid("SEARCH", None, criteria)
+        status, data = self.conn.uid(
+            "SEARCH", None, "SINCE", imap_date(since), "BEFORE", imap_date(before)
+        )
         if status != "OK":
             raise RuntimeError(f"IMAP 搜索失败：{status} {data}")
-        raw = (data[0] or b"").split()
-        return raw
+        return (data[0] or b"").split()
 
     def fetch_message(self, uid: bytes) -> email.message.Message | None:
         status, data = self.conn.uid("FETCH", uid, "(RFC822)")
@@ -160,14 +167,19 @@ def iter_attachments(msg: email.message.Message) -> list[tuple[int, str, str, by
 
 
 def classify_attachment(filename: str, role: str, text_preview: str) -> str:
-    """invoice / itinerary / other / ignored。"""
+    """invoice / itinerary / companion / other / ignored。
+
+    OFD 一律是 companion，**绝不单独成为一张发票**：携程的 PDF 与 OFD 附件名里各带一段
+    随机串（`电子发票-2cu1412000tw59aeyA9D3.pdf` vs `电子发票-2cu1512000tw59aezEB96.ofd`），
+    基名对不上就会被拆成两组，OFD 那组必然"缺少 PDF"而变成假存疑（实测踩过 6 条）。
+    """
     ext = Path(filename).suffix.lower()
     if ext in _IGNORED_EXTS or ext not in _ALLOWED_EXTS:
         return "ignored"
     if role == "xml":
         return "invoice" if "EInvoice" in text_preview or "<Invoice" in text_preview else "other"
     if role == "ofd":
-        return "invoice"
+        return "companion"
     if role == "image":
         return "invoice"
     if role == "pdf":
@@ -229,8 +241,12 @@ def collect(
                 saved = ""
                 if kind != "ignored":
                     saved = str(_save(staging_dir, uid, index, filename, payload))
-                    if role == "pdf" and kind == "itinerary":
-                        pass
+                if role == "pdf" and saved and kind == "invoice" and not _ITINERARY_NAME.search(filename):
+                    # 文件名没写"行程单"的 PDF，用首页内容再确认一次是不是行程单。
+                    from .extract import pdf_preview
+
+                    preview = pdf_preview(Path(saved))
+                    kind = classify_attachment(filename, role, preview)
                 items.append(
                     Attachment(
                         mail_uid=uid,
@@ -242,6 +258,7 @@ def collect(
                         path=saved,
                         kind=kind,
                         role=role,
+                        preview=preview,
                     )
                 )
 
@@ -298,11 +315,24 @@ def load_manifest(staging_dir: Path) -> tuple[list[Group], int, int]:
                 content_type=a.get("content_type", ""),
                 size=int(a.get("size", 0)),
                 path=a.get("path", ""),
-                kind=a.get("kind", ""),
+                kind="",
                 role=a.get("role", ""),
+                preview=a.get("preview", ""),
             )
             for a in entry.get("attachments", [])
         ]
+        # 用当前分类器复算 kind，避免 --replay 沿用上次采集时写死的、已被修掉的判定。
+        for attachment in attachments:
+            if not attachment.path:
+                continue
+            preview = attachment.preview
+            if not preview and attachment.role in {"xml", "ofd"}:
+                # 老 manifest 没存 preview 时从磁盘补读，保证重放仍然准确。
+                try:
+                    preview = Path(attachment.path).read_bytes()[:4000].decode("utf-8", errors="replace")
+                except OSError:
+                    preview = ""
+            attachment.kind = classify_attachment(attachment.filename, attachment.role, preview)
         if any(a.path for a in attachments):
             with_attachments += 1
         groups.extend(build_groups(mail, attachments))
@@ -326,10 +356,16 @@ def _save(staging_dir: Path, uid: str, index: int, filename: str, payload: bytes
     return target
 
 
+def _amount_in_name(filename: str) -> float | None:
+    values = re.findall(r"(d+(?:.d{1,2}))元", filename or "")
+    return max(map(float, values)) if values else None
+
+
 def build_groups(mail: MailInfo, items: list[Attachment]) -> list[Group]:
     """把一封邮件的附件整理成"一张发票 + 它的同伴与行程单"。"""
     invoices: dict[str, Group] = {}
     itineraries: list[Attachment] = []
+    companions: list[Attachment] = []
     order: list[str] = []
 
     for item in items:
@@ -337,6 +373,9 @@ def build_groups(mail: MailInfo, items: list[Attachment]) -> list[Group]:
             continue
         if item.kind == "itinerary":
             itineraries.append(item)
+            continue
+        if item.kind == "companion":
+            companions.append(item)
             continue
         key = item.base_key or item.filename
         group = invoices.get(key)
@@ -353,6 +392,8 @@ def build_groups(mail: MailInfo, items: list[Attachment]) -> list[Group]:
             group.invoice = item
         else:
             group.companions.append(item)
+
+    leftovers = _attach(companions, invoices, order)
 
     if itineraries:
         unmatched: list[Attachment] = []
@@ -371,4 +412,43 @@ def build_groups(mail: MailInfo, items: list[Attachment]) -> list[Group]:
             orphan.itineraries = unmatched
             return [invoices[k] for k in order] + [orphan]
 
-    return [invoices[k] for k in order]
+    groups = [invoices[k] for k in order]
+    if leftovers:
+        orphan = Group(key=f"__orphan_companion__/{mail.uid}", mail=mail)
+        orphan.companions = leftovers
+        groups.append(orphan)
+    return groups
+
+
+def _attach(
+    companions: list[Attachment], invoices: dict[str, Group], order: list[str]
+) -> list[Attachment]:
+    """把同伴附件挂到发票组上：先按基名，再按"同邮件只有一张发票"，最后按文件名金额。"""
+    leftovers: list[Attachment] = []
+    for comp in companions:
+        target = invoices.get(comp.base_key or "")
+        if target is not None:
+            target.companions.append(comp)
+        else:
+            leftovers.append(comp)
+    if leftovers and len(invoices) == 1:
+        invoices[order[0]].companions.extend(leftovers)
+        return []
+    still_left: list[Attachment] = []
+    for comp in leftovers:
+        amount = _amount_in_name(comp.filename)
+        matched = None
+        if amount is not None:
+            for key in order:
+                carrier = invoices[key].invoice
+                if carrier is None:
+                    continue
+                other = _amount_in_name(carrier.filename)
+                if other is not None and abs(other - amount) < 0.011:
+                    matched = invoices[key]
+                    break
+        if matched is not None:
+            matched.companions.append(comp)
+        else:
+            still_left.append(comp)
+    return still_left

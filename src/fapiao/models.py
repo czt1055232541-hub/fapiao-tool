@@ -25,8 +25,9 @@ class Attachment:
     content_type: str
     size: int
     path: str = ""
-    kind: str = ""  # invoice / itinerary / other / ignored
+    kind: str = ""  # invoice / itinerary / companion / other / ignored
     role: str = ""  # pdf / xml / ofd / image / other
+    preview: str = ""  # 分类用的内容片段；--replay 靠它复算 kind，避免用过期判定
 
     @property
     def base_key(self) -> str:

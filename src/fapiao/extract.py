@@ -13,6 +13,7 @@ from xml.etree import ElementTree
 
 from .models import ItineraryMeta, Meta
 from .textutil import (
+    CITY_NAMES,  # noqa: F401 - classify 通过 extract.CITY_NAMES 引用
     city_tokens,
     invoice_number,
     issue_date,
@@ -27,17 +28,6 @@ OFD_EXT = ".ofd"
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff"}
 
 ITINERARY_MARKERS = ("AMAP ITINERARY", "行程单", "ITINERARY")
-
-# 常见城市，用于从邮件主题/正文里认住宿城市（酒店发票正文常不写"市"字）。
-CITY_NAMES = (
-    "北京 上海 广州 深圳 杭州 南京 苏州 无锡 宁波 温州 嘉兴 绍兴 金华 台州 湖州 衢州 丽水 舟山 "
-    "合肥 武汉 长沙 南昌 福州 厦门 泉州 郑州 济南 青岛 烟台 潍坊 天津 石家庄 太原 西安 兰州 西宁 "
-    "银川 乌鲁木齐 呼和浩特 沈阳 大连 长春 哈尔滨 成都 重庆 贵阳 昆明 南宁 海口 三亚 拉萨 珠海 "
-    "佛山 东莞 中山 惠州 汕头 湛江 常州 南通 徐州 扬州 镇江 泰州 盐城 淮安 连云港 宿迁 芜湖 "
-    "洛阳 开封 新乡 邯郸 保定 唐山 秦皇岛 临沂 淄博 济宁 威海 洛阳 襄阳 宜昌 岳阳 株洲 湘潭 "
-    "赣州 九江 桂林 柳州 北海 绵阳 德阳 宜宾 泸州 遵义 曲靖 大理 丽江 嘉兴 义乌 昆山 张家港 "
-    "简阳 都江堰 余姚 慈溪 温岭 瑞安 乐清 诸暨 海宁 桐乡 平湖 长兴 德清 安吉 嵊州 临海 龙泉"
-).split()
 
 _SHANGHAI_HOTEL_RE = re.compile(r"入住时间[^\d]{0,10}(20\d{2})年(\d{1,2})月(\d{1,2})日")
 _CHECKOUT_RE = re.compile(r"退房时间[^\d]{0,10}(20\d{2})年(\d{1,2})月(\d{1,2})日")
@@ -72,6 +62,19 @@ def read_pdf_text(path: Path) -> tuple[str, str, str]:
     except Exception as exc:  # noqa: BLE001
         errors.append(f"pypdf: {exc}")
     return "", "none", "；".join(errors)
+
+
+def pdf_preview(path: Path, limit: int = 600) -> str:
+    """只取首页开头一小段，用于判断这份 PDF 到底是发票还是行程单等。"""
+    try:
+        import fitz
+
+        with fitz.open(str(path)) as doc:
+            if doc.page_count:
+                return (doc[0].get_text() or "")[:limit]
+    except Exception:  # noqa: BLE001 - 预览失败不影响主流程，退回空串
+        pass
+    return ""
 
 
 def parse_xml_invoice(text: str) -> Meta | None:

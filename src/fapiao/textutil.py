@@ -8,6 +8,17 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+# 常见城市，用于从邮件主题/正文/销售方名称里认城市（酒店与餐饮发票正文常不写"市"字）。
+CITY_NAMES = (
+    "北京 上海 广州 深圳 杭州 南京 苏州 无锡 宁波 温州 嘉兴 绍兴 金华 台州 湖州 衢州 丽水 舟山 "
+    "合肥 武汉 长沙 南昌 福州 厦门 泉州 郑州 济南 青岛 烟台 潍坊 天津 石家庄 太原 西安 兰州 西宁 "
+    "银川 乌鲁木齐 呼和浩特 沈阳 大连 长春 哈尔滨 成都 重庆 贵阳 昆明 南宁 海口 三亚 拉萨 珠海 "
+    "佛山 东莞 中山 惠州 汕头 湛江 常州 南通 徐州 扬州 镇江 泰州 盐城 淮安 连云港 宿迁 芜湖 "
+    "洛阳 开封 新乡 邯郸 保定 唐山 秦皇岛 临沂 淄博 济宁 威海 襄阳 宜昌 岳阳 株洲 湘潭 "
+    "赣州 九江 桂林 柳州 北海 绵阳 德阳 宜宾 泸州 遵义 曲靖 大理 丽江 义乌 昆山 张家港 "
+    "简阳 都江堰 余姚 慈溪 温岭 瑞安 乐清 诸暨 海宁 桐乡 平湖 长兴 德清 安吉 嵊州 临海 龙泉"
+).split()
+
 _INVALID_FS = re.compile(r'[<>:"/\\|?*]+')
 _WS = re.compile(r"\s+")
 
@@ -17,7 +28,9 @@ _MONEY = re.compile(r"[¥￥]\s*(-?[0-9]+(?:\.[0-9]{1,2})?)")
 _INVOICE_NO = re.compile(r"(?<!\d)(\d{20})(?!\d)")
 _CN_DATE = re.compile(r"(20\d{2})年(\d{1,2})月(\d{1,2})日")
 _ISSUE_DATE = re.compile(r"开票日期[:：]?\s*(20\d{2})年(\d{1,2})月(\d{1,2})日")
-_CITY_TOKEN = re.compile(r"(?<![\u4e00-\u9fff])([\u4e00-\u9fff]{2,8}市)(?![\u4e00-\u9fff])")
+# 行程单的城市是表格里的一个独立单元格，必须"单独成行"才算城市；
+# 放宽成任意位置的 X市 会把"小果园生鲜连锁超市"这种店名吃进来（实测踩过）。
+_CITY_LINE = re.compile(r"^[ \t]*([\u4e00-\u9fff]{2,8}市)[ \t]*$", re.M)
 # 尾部用惰性匹配 + 前瞻停在"数字/行尾"，否则会把后面的单价格式一起吞进项目名。
 _ITEM = re.compile(r"\*([^*\n]{2,20})\*([^*\n]{0,24}?)(?=\s*[0-9]|\n|$)")
 
@@ -66,13 +79,26 @@ def last_cn_date(text: str) -> str:
 
 
 def city_tokens(text: str) -> list[str]:
-    """抽取形如"杭州市"的城市词，去重保序，去掉"市"字。"""
+    """抽取行程单里的城市（去"市"字）。
+
+    先取"单独成行"的 X市；一个都没有时，退回在文本里找已知城市名。
+    """
     seen: list[str] = []
-    for raw in _CITY_TOKEN.findall(text):
+    for raw in _CITY_LINE.findall(text):
         name = raw[:-1]
         if name not in seen:
             seen.append(name)
-    return seen
+    if seen:
+        # 行程单是多行表格，终点单元格里的"小果园生鲜连锁超市"也会单独成行；
+        # 只要行里出现过已知城市，就只保留已知城市。
+        known = [name for name in seen if name in CITY_NAMES]
+        return known or seen
+    return known_cities_in(text)
+
+
+def known_cities_in(text: str) -> list[str]:
+    """按已知城市表找出文本里出现的城市（按表内顺序，去重）。"""
+    return [city for city in CITY_NAMES if city in text]
 
 
 def item_names(text: str) -> list[str]:
