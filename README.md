@@ -5,7 +5,7 @@
 
 **数据不出本机**：只读写本机文件、只连一台 IMAP 服务器（`imap.qq.com`），不上传任何内容。
 
-## 当前状态（验证于 2026-09-29）
+## 当前状态（验证于 2026-09-29，v1.1）
 
 | 项 | 实际情况 |
 |---|---|
@@ -13,9 +13,10 @@
 | 数据 | 归档在 `<归档根目录>\`，与仓库物理分离，**不进版本控制** |
 | 真实产出 | `归档\20260920月度发票归集(9372.25)\`：52 张发票 / 计入 50 张 / 9372.25 元 / 存疑 2 张 |
 | 依赖 | Python 3.13.2 / PyMuPDF / pypdf / openpyxl（pdfplumber 未安装，不使用） |
-| 自动化 | 计划任务「月度发票收集整理」**尚未注册**（沙箱拒绝写任务计划程序存储）；双击 `每月整理.cmd` 已实测可用 |
-| 回归 | `python scripts/check_all.py` = 7 项全绿；67 个离线单测（零网络零费用） |
-| 回滚点 | `stage-full-pipeline`、`stage-real-mail-integration`（见 `PROJECT_STATE.md`） |
+| 自动化 | 计划任务「月度发票收集整理」**已注册**：Ready，每月 20 日 09:00，**下次运行 2026-10-20 09:00**；已手动触发实测跑通（`LastTaskResult=0x0`） |
+| 回归 | `python scripts/check_all.py` = 7 项全绿；68 个离线单测（零网络零费用） |
+| 归档复核 | `python scripts/verify_archive.py "<归档目录>"` = 6 类检查通过 |
+| 回滚点 | `stage-full-pipeline` / `stage-real-mail-integration` / `stage-v1.0-real-archive` / `stage-v1.1-automation-live`（见 `PROJECT_STATE.md`） |
 
 ## 文档地图
 
@@ -37,12 +38,18 @@
 3. 先看 `00_发票审计明细及汇总.xlsx`；黄行是存疑，去 `99_存疑待人工审计\` 核对。
 4. 交给财务用 `00_汇总发票\` 里的分类合并 PDF（按分类各一份，不含行程单）。
 
-**自动化**：沙箱内无法注册计划任务，请在普通 PowerShell 里手动执行一次：
+**自动化已启用**：计划任务「月度发票收集整理」每月 20 日 09:00 自动执行 `每月整理.cmd`。
+改时间或删除：
 
 ```powershell
 cd "<工具根目录>"
-powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1
+powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1 -DayOfMonth 25 -At 09:30
+powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1 -Unregister
+powershell -ExecutionPolicy Bypass -File scripts\check_task.ps1     # 查状态
 ```
+
+> 任务只在**当前用户已登录**时运行（不存储密码）。20 号当天没开机/没登录的话，
+> 下次登录后由「错过就补跑」（`StartWhenAvailable`）补上。
 
 ## 命令行入口
 
@@ -56,6 +63,7 @@ python scripts/run_monthly.py --force             # 覆盖已存在的运行目�
 
 python scripts/preview.py --run-date 2026-10-20   # 预演：明细表 + 行程聚类，不写盘
 python scripts/check_all.py                       # 验证基线（7 项）
+python scripts/verify_archive.py "<归档目录>"      # 复核某份归档是否自洽
 ```
 
 ## 设计原则

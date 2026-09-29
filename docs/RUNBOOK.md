@@ -4,9 +4,10 @@
 
 ### 自动（推荐，需先注册计划任务）
 
-计划任务「月度发票收集整理」在每月 20 日 09:00 触发 `每月整理.cmd --nopause`。
+计划任务「月度发票收集整理」在**每月 20 日 09:00** 触发 `每月整理.cmd --nopause`。
 
-**当前状态：任务尚未注册**（本机 DSH 沙箱拒绝写任务计划程序存储，见下方「启用自动化」）。
+**当前状态（2026-09-29 核实）：已注册**，状态 Ready，下次运行 **2026-10-20 09:00**。
+已用 COM 手动触发跑过一次，`LastTaskResult = 0x0`，日志见 `data/logs/20260929.log`。
 
 ### 手动
 
@@ -27,26 +28,33 @@ python scripts/preview.py --replay data/staging/20260920
 
 python scripts/check_all.py                       # 验证基线（7 项）
 python scripts/check_privacy.py                   # 只看隐私闸门
+python scripts/verify_archive.py "<归档根目录>\20260920月度发票归集(9372.25)"   # 复核某份归档是否自洽
 powershell -ExecutionPolicy Bypass -File scripts/check_task.ps1   # 只看计划任务状态
 ```
 
-## 启用自动化
+## 自动化（已启用）
 
-沙箱内无法注册计划任务（`New-ScheduledTaskAction` / `schtasks /create` 均被拒绝）。
-请在**普通 PowerShell 窗口**里手动执行一次（若提示权限不足，用「以管理员身份运行」）：
+注册 / 改时间 / 删除：
 
 ```powershell
 cd "<工具根目录>"
-powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1
+powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1                  # 每月 20 日 09:00
+powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1 -DayOfMonth 25 -At 09:30
+powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1 -Unregister
 ```
 
-可选参数：`-At 09:30` 改时间、`-TaskName "别的名字"`、`-Unregister` 删除。
-
-注册后确认：
+确认状态（状态、触发日、动作、下次运行，任一不对就返回非零）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_task.ps1
 ```
+
+> **为什么脚本里用 COM 而不是 `Register-ScheduledTask`**：本机 `ScheduledTasks` 模块的写入路径
+> 一律返回 `Unspecified error (0x80004005)`，`schtasks.exe /create` 直接被拒绝启动，
+> `New-ScheduledTaskTrigger` 又没有 `-Monthly`。细节与证据见 `AGENTS.md` 环境坑位 13–16。
+>
+> 另外：**注册后第一次想验证它真的能跑**，别在 DSH 工具调用里触发后马上返回——
+> 调用结束会清掉该调用期间启动的进程树，任务会跑一半被杀（`AGENTS.md` 环境坑位 17）。
 
 ## 排障
 
