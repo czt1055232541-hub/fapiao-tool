@@ -1,0 +1,41 @@
+{
+  "mail": {
+    "credentialSource": "dsh-qqmail",
+    "credentialPath": "<邮箱凭据配置>",
+    "mailbox": "INBOX",
+    "windowMode": "rolling-21-to-20",
+    "extraLookbackDays": 0,
+    "maxMailsPerRun": 3000,
+    "onlyWithAttachments": true
+  },
+  "archive": {
+    "root": "<归档根目录>",
+    "folderTemplate": "{runDate}月度发票归集({total:.2f})",
+    "keepXml": true,
+    "keepOfd": false,
+    "includeSinceYear": null
+  },
+  "classify": {
+    "buyers": [
+      {
+        "name": "浙江大学",
+        "fullName": "浙江大学",
+        "taxIds": ["12100000470095016Q"],
+        "keywords": ["浙江大学"]
+      },
+      {
+        "name": "芯智辰光",
+        "fullName": "芯智辰光科技（杭州）有限公司",
+        "taxIds": ["91330106MAKD4B5L0R"],
+        "keywords": ["芯智辰光"]
+      }
+    ],
+    "homeCity": "杭州",
+    "tripGapDays": 4
+  },
+  "report": {
+    "summaryName": "00_审计摘要.json",
+    "excelName": "00_发票审计明细及汇总.xlsx",
+    "mergedFolder": "00_汇总发票"
+  }
+}

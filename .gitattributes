@@ -1,0 +1,17 @@
+* text=auto
+
+# 源码与文档统一 LF
+*.py    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.txt   text eol=lf
+
+# Windows 批处理必须 CRLF（cmd.exe 以 CR 断行，LF-only 会吞掉行首字符）
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+
+# 二进制
+*.pdf   binary
+*.xlsx  binary
+*.png   binary

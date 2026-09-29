@@ -1,0 +1,27 @@
+# 运行期数据：绝不进入版本控制
+data/
+runtime/
+logs/
+*.log
+*.jsonl
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# 一次性脚本与快照
+_probe/
+scratch/
+_migration/
+
+# 语言缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# 本机配置与凭据（授权码只存在于 DSH 配置库，绝不落库到本仓库）
+config.local.json
+.env
+.env.*
+*.secret
