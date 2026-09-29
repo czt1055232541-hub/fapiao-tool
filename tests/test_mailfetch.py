@@ -118,6 +118,34 @@ class TestAttachmentGrouping(unittest.TestCase):
         self.assertEqual(len(groups[0].itineraries), 1)
 
 
+class TestLoadManifest(unittest.TestCase):
+    def test_pathless_attachment_keeps_ignored_kind(self):
+        """没落盘的附件必须保留 ignored，否则 --replay 会为它建出幽灵发票分组。"""
+        import json
+        import tempfile as _tempfile  # noqa: F401 - 仅说明此处不用系统临时目录
+
+        from tests import support
+
+        tmp = support.make_temp_dir("manifest")
+        try:
+            (tmp / "manifest.json").write_text(json.dumps({
+                "mail_count": 1,
+                "mails": [{
+                    "mail": {"uid": "9", "mailbox": "INBOX", "subject": "通知", "sender": "",
+                             "date": "", "message_id": "", "text": ""},
+                    "attachments": [
+                        {"mail_uid": "9", "mailbox": "INBOX", "index": 1, "filename": "名单.zip",
+                         "content_type": "", "size": 1, "path": "", "kind": "ignored", "role": "other"},
+                    ],
+                }],
+            }, ensure_ascii=False), encoding="utf-8")
+            groups, mails, _ = mailfetch.load_manifest(tmp)
+            self.assertEqual(mails, 1)
+            self.assertEqual(groups, [], "没有落盘附件的邮件不该产生任何分组")
+        finally:
+            support.clean_temp_dir(tmp)
+
+
 class TestClassifyAttachment(unittest.TestCase):
     def test_ignored_extensions(self):
         self.assertEqual(mailfetch.classify_attachment("发票.zip", "other", ""), "ignored")

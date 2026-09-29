@@ -199,8 +199,12 @@ def collect(
     staging_dir: Path,
     max_mails: int = 3000,
     log=print,
-) -> list[Group]:
-    """连邮箱抓取窗口内的邮件，附件落盘到 staging_dir，返回按发票分组的 Group 列表。"""
+) -> tuple[list[Group], int, int]:
+    """连邮箱抓取窗口内的邮件，附件落盘到 staging_dir。
+
+    返回 (分组, 邮件数, 有附件的邮件数)。调用方直接用这个结果，
+    **不要**再 load_manifest 一次：重复解析既慢，又会让两条路径的分组结果不一致。
+    """
     staging_dir.mkdir(parents=True, exist_ok=True)
     groups: list[Group] = []
     manifest_mails: list[dict] = []
@@ -279,9 +283,10 @@ def collect(
     (staging_dir / MANIFEST_NAME).write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8", newline=""
     )
-    log(f"[采集] 落盘 {sum(1 for m in manifest_mails for a in m['attachments'] if a['path'])} 个附件，"
-        f"分组成 {len(groups)} 张发票")
-    return groups
+    saved = sum(1 for m in manifest_mails for a in m["attachments"] if a["path"])
+    with_attachments = sum(1 for m in manifest_mails if any(a["path"] for a in m["attachments"]))
+    log(f"[采集] 落盘 {saved} 个附件，分组成 {len(groups)} 张发票")
+    return groups, len(manifest_mails), with_attachments
 
 
 def load_manifest(staging_dir: Path) -> tuple[list[Group], int, int]:
@@ -315,7 +320,7 @@ def load_manifest(staging_dir: Path) -> tuple[list[Group], int, int]:
                 content_type=a.get("content_type", ""),
                 size=int(a.get("size", 0)),
                 path=a.get("path", ""),
-                kind="",
+                kind=a.get("kind", ""),
                 role=a.get("role", ""),
                 preview=a.get("preview", ""),
             )
@@ -324,6 +329,9 @@ def load_manifest(staging_dir: Path) -> tuple[list[Group], int, int]:
         # 用当前分类器复算 kind，避免 --replay 沿用上次采集时写死的、已被修掉的判定。
         for attachment in attachments:
             if not attachment.path:
+                # 没落盘的是采集时就判为 ignored 的（zip/doc 等）。
+                # 若把它清成空 kind，build_groups 会当成发票建出幽灵分组（实测踩过）。
+                attachment.kind = attachment.kind or "ignored"
                 continue
             preview = attachment.preview
             if not preview and attachment.role in {"xml", "ofd"}:

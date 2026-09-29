@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -53,7 +52,7 @@ def run(
         cred = config.resolve_credentials(cfg)
         log(f"[采集] 使用凭据：{cred.redacted()}")
         staging = staging_root() / run_key
-        groups = mailfetch.collect(
+        groups, mail_scanned, mail_with_attachments = mailfetch.collect(
             cred,
             window[0],
             window[1],
@@ -62,10 +61,6 @@ def run(
             max_mails=int(mail_cfg.get("maxMailsPerRun") or 3000),
             log=log,
         )
-        manifest = json.loads((staging / mailfetch.MANIFEST_NAME).read_text(encoding="utf-8"))
-        mail_scanned = manifest.get("mail_count", 0)
-        mail_with_attachments = sum(1 for m in manifest.get("mails", []) if any(a["path"] for a in m["attachments"]))
-        groups, _, _ = mailfetch.load_manifest(staging)
 
     # ---------- 2. 解析 + 3. 归类 ----------
     records: list[Record] = []

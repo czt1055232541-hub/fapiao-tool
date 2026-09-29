@@ -1,69 +1,68 @@
 # 发票工具（fapiao）
 
-每月 20 号自动从 QQ 邮箱收集发票，按参考案例的整理方式归档成可直接交给财务的报销材料。
+每月 20 号自动从 QQ 邮箱收集发票，按参考案例 `<参考案例目录>`
+的整理方式，归档成可直接交给财务的报销材料。
 
-**数据不出本机**：工具只在本机读写文件、只连一台 IMAP 服务器（`imap.qq.com`），不上传任何内容。
+**数据不出本机**：只读写本机文件、只连一台 IMAP 服务器（`imap.qq.com`），不上传任何内容。
 
-## 当前状态（验证于 2026-09-18）
+## 当前状态（验证于 2026-09-29）
 
 | 项 | 实际情况 |
 |---|---|
-| 代码 | Task 0 骨架建设中，尚无 Python 源码 |
-| 数据 | 归档根 `<归档根目录>\`，**不进版本控制** |
-| 依赖 | Python 3.13.2 / pypdf / PyMuPDF / openpyxl（pdfplumber 未安装，不使用） |
-| 自动化 | 计划任务"每月 20 日"**尚未注册** |
-| 回归 | `scripts/check_all.py` 尚未建立 |
-| 回滚点 | 见 `PROJECT_STATE.md -> Stages And Rollback Nodes` |
+| 代码 | v1.0，35 个受控文件；`src/fapiao/` 8 个模块 + `scripts/` 5 个脚本 + `tests/` 7 个测试文件 |
+| 数据 | 归档在 `<归档根目录>\`，与仓库物理分离，**不进版本控制** |
+| 真实产出 | `归档\20260920月度发票归集(9372.25)\`：52 张发票 / 计入 50 张 / 9372.25 元 / 存疑 2 张 |
+| 依赖 | Python 3.13.2 / PyMuPDF / pypdf / openpyxl（pdfplumber 未安装，不使用） |
+| 自动化 | 计划任务「月度发票收集整理」**尚未注册**（沙箱拒绝写任务计划程序存储）；双击 `每月整理.cmd` 已实测可用 |
+| 回归 | `python scripts/check_all.py` = 7 项全绿；67 个离线单测（零网络零费用） |
+| 回滚点 | `stage-full-pipeline`、`stage-real-mail-integration`（见 `PROJECT_STATE.md`） |
 
 ## 文档地图
 
 | 文件 | 作用 | 读者 |
 |---|---|---|
 | `docs/整理要求.md` | **验收标准**：分类、命名、去重、存疑、统计口径 | 想改行为的人 |
-| `docs/GOAL.md` | 目标 + 已验证事实 + 默认决策 + 任务队列 | 接手的 agent |
+| `docs/RUNBOOK.md` | 怎么跑、怎么启用自动化、怎么排障、怎么回滚 | 使用者 / 排障 |
+| `docs/ARCHITECTURE.md` | 分层、模块边界、数据流、不变量、退出码 | 改代码的人 |
+| `docs/GOAL.md` | 目标 + 已验证事实 + 默认决策 | 接手的 agent |
 | `PROJECT_STATE.md` | **唯一进度事实** | 所有人 |
-| `docs/ARCHITECTURE.md` | 分层与模块边界 | 改代码的人 |
-| `docs/RUNBOOK.md` | 起停、排障、错误码 | 运维/排障 |
-| `AGENTS.md` | 开发规则（每轮注入） | agent |
+| `AGENTS.md` | 开发规则与 13 条环境坑位（每轮注入） | agent |
 
 阅读顺序：`AGENTS.md` → `docs/GOAL.md` → `PROJECT_STATE.md` → `git status` → 跑基线。
 
 ## 日常使用
 
-双击 `每月整理.cmd`（默认整理"上月21日~本月20日"窗口，并弹出运行结果）。
+1. 双击 `每月整理.cmd`（默认整理"上月21日~本月20日"窗口）。
+2. 结果在 `<归档根目录>\{运行日}月度发票归集({总额})\`。
+3. 先看 `00_发票审计明细及汇总.xlsx`；黄行是存疑，去 `99_存疑待人工审计\` 核对。
+4. 交给财务用 `00_汇总发票\` 里的分类合并 PDF（按分类各一份，不含行程单）。
+
+**自动化**：沙箱内无法注册计划任务，请在普通 PowerShell 里手动执行一次：
+
+```powershell
+cd "<工具根目录>"
+powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1
+```
 
 ## 命令行入口
 
 ```bash
-# 默认：滚动窗口（上月21日~本月20日），真实采集并归档
-python scripts/run_monthly.py
+python scripts/run_monthly.py                     # 真实运行（最近一个完整窗口）
+python scripts/run_monthly.py --run-date 2026-10-20   # 模拟某次 20 号执行
+python scripts/run_monthly.py --dry-run           # 连邮箱算结果，但不落盘
+python scripts/run_monthly.py --doctor            # 自检：配置 + 凭据 + 窗口邮件数
+python scripts/run_monthly.py --replay data/staging/20260920   # 离线重放，不连邮箱
+python scripts/run_monthly.py --force             # 覆盖已存在的运行目录
 
-# 指定运行日（模拟某次 20 号执行）
-python scripts/run_monthly.py --run-date 2026-10-20
-
-# 只解析本地已抓取的暂存目录，不连邮箱（离线重放）
-python scripts/run_monthly.py --replay data/staging/20261020
-
-# 预演：连邮箱抓取、算好结果，但不落盘
-python scripts/run_monthly.py --dry-run
-
-# 覆盖已存在的运行目录
-python scripts/run_monthly.py --force
-
-# 自检（不写归档）
-python scripts/run_monthly.py --doctor
-```
-
-## 验证
-
-```bash
-python scripts/check_all.py      # 单命令跑完整基线；返回非零即失败
+python scripts/preview.py --run-date 2026-10-20   # 预演：明细表 + 行程聚类，不写盘
+python scripts/check_all.py                       # 验证基线（7 项）
 ```
 
 ## 设计原则
 
-1. **XML 优先，PDF 兜底**：银行/税务发的结构化 XML 是权威源；PDF 文字碎片化，只做兜底。
-2. **按发票号码去重**：同一张发票在邮件里可能带 2~4 个附件、乃至重复投递，不按附件计数。
-3. **宁可存疑，不可猜错**：算不准的一律进 `99_存疑待人工审计` 并写明原因，绝不静默丢掉，也绝不静默算进总额。
-4. **三处金额必须对得上**：明细之和 = 分类之和 = 合并 PDF 覆盖金额。
+1. **XML 优先，PDF 兜底**：税务/服务商给的结构化 XML 是权威源；PDF 文字碎片化，只做兜底。
+2. **按发票号码去重**：同一张发票在邮件里可能带 2~4 个附件、乃至重复投递；不按附件计数。
+3. **宁可存疑，不可猜错**：算不准的一律进 `99_存疑待人工审计\` 并写明原因，绝不静默丢掉，也绝不静默算进总额。
+4. **三处金额必须对得上**：明细之和 = 分类之和 = 合并 PDF 覆盖金额，对不上就整次运行失败。
 5. **一次运行一个自包含目录**：可单独打包交给财务，也可单独回滚删除。
+6. **邮箱只读**：永不删信、永不移动、永不标已读。

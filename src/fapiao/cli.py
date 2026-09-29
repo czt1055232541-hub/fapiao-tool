@@ -10,6 +10,41 @@ from pathlib import Path
 from . import config, mailfetch, pipeline
 
 
+class _Tee:
+    """把 stdout/stderr 同时写进日志文件。
+
+    计划任务运行时没有控制台，没有日志就等于没有证据。
+    """
+
+    def __init__(self, stream, handle):
+        self._stream = stream
+        self._handle = handle
+
+    def write(self, data):
+        self._stream.write(data)
+        self._handle.write(data)
+        return len(data)
+
+    def flush(self):
+        self._stream.flush()
+        self._handle.flush()
+
+
+def _open_log(run_date) -> "object | None":
+    from . import config
+
+    try:
+        log_dir = config.PROJECT_ROOT / "data" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        path = log_dir / f"{run_date.strftime('%Y%m%d')}.log"
+        handle = path.open("a", encoding="utf-8", newline="")
+        handle.write(f"\n===== {datetime.now().isoformat(timespec='seconds')} 运行开始 =====\n")
+        handle.flush()
+        return handle
+    except OSError:
+        return None
+
+
 def _force_utf8() -> None:
     """Windows 控制台默认 GBK，中文/符号会 UnicodeEncodeError（AGENTS.md 环境坑位 6）。"""
     for stream in (sys.stdout, sys.stderr):
@@ -51,6 +86,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.doctor:
         return _doctor(cfg, run_date, since, before)
 
+    return _run_with_log(cfg, run_date, args, since, before)
+
+
+def _run_with_log(cfg: dict, run_date: date, args, since, before) -> int:
+    """跑主流程，并把输出同时留一份日志。
+
+    注意：结束前必须把 sys.stdout/stderr 还原成原对象再关文件句柄，
+    否则解释器退出时 flush 已关闭的文件会报 "Exception ignored on flushing
+    sys.stdout" 并把退出码污染成 120（实测踩过）。
+    """
+    log_handle = _open_log(run_date)
+    original_out, original_err = sys.stdout, sys.stderr
+    if log_handle is not None:
+        sys.stdout = _Tee(original_out, log_handle)
+        sys.stderr = _Tee(original_err, log_handle)
     try:
         result = pipeline.run(
             cfg, run_date,
@@ -61,12 +111,16 @@ def main(argv: list[str] | None = None) -> int:
             before=before,
             root_override=args.out_root,
         )
+        if result.run_dir is None:
+            print("[预演] 未写归档。")
+        return 0
     except (FileExistsError, RuntimeError, FileNotFoundError) as exc:
         print(f"[失败] {exc}", file=sys.stderr)
         return 2
-    if result.run_dir is None:
-        print("[预演] 未写归档。")
-    return 0
+    finally:
+        sys.stdout, sys.stderr = original_out, original_err
+        if log_handle is not None:
+            log_handle.close()
 
 
 def _doctor(cfg: dict, run_date: date, since: date | None, before: date | None) -> int:

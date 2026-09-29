@@ -53,11 +53,26 @@ def main() -> int:
     if cred and "authCode" in Path(cred).read_text(encoding="utf-8", errors="replace"):
         print("  凭据文件被 config.json 指向（只读引用，未复制进仓库）：%s" % cred)
 
+    # 真跑一遍用户双击的那个 .cmd：--nopause 绝不能泄漏给 Python（argparse 会直接报错）。
+    # 实测踩过：cmd 的 shift 不影响 %*，泄漏后 exit code 变成 2。
+    import subprocess
+
+    proc = subprocess.run(
+        ["cmd", "/c", str(ENTRY), "--nopause", "--help"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if proc.returncode != 0:
+        problems.append("入口 .cmd 传参失败（exit %s）：%s" % (proc.returncode, (proc.stderr or "").strip()[:200]))
+    if "--nopause" in (proc.stdout or "") + (proc.stderr or ""):
+        problems.append("入口 .cmd 把 --nopause 泄漏给了 Python")
+    if "每月 20 号从 QQ 邮箱收集并整理发票" not in (proc.stdout or ""):
+        problems.append("入口 .cmd 未能正常调用 Python 入口")
+
     if problems:
         for item in problems:
             print("  [入口闸门] %s" % item)
         return 1
-    print("  入口闸门通过：CRLF + 纯 ASCII + 归档根在仓库之外。")
+    print("  入口闸门通过：CRLF + 纯 ASCII + 参数不泄漏 + 归档根在仓库之外。")
     return 0
 
 
