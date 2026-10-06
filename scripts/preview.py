@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from fapiao import classify, config, mailfetch  # noqa: E402
+from fapiao import classify, config, mailfetch, wechatfetch  # noqa: E402
 from fapiao.textutil import month_range  # noqa: E402
 
 
@@ -48,7 +48,22 @@ def collect_groups(args, cfg) -> tuple[list, dict]:
                               staging, max_mails=int(mail_cfg.get("maxMailsPerRun") or 3000))
     groups, mails, with_att = mailfetch.load_manifest(staging)
     manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
-    return groups, {"staging": staging, "mails": mails, "with_att": with_att, "manifest": manifest}
+
+    wechat_info = None
+    wechat_skipped: list = []
+    if not args.replay and not getattr(args, "no_wechat", False):
+        wechat_cfg = cfg.get("wechat") or {}
+        inbound = getattr(args, "wechat_dir", None) or wechat_cfg.get("inboundDir")
+        if wechat_cfg.get("enabled", True) and inbound:
+            result = wechatfetch.collect(Path(inbound), since, before,
+                                         accept_exts=tuple(wechat_cfg.get("acceptExtensions")
+                                                           or wechatfetch.DEFAULT_ACCEPT_EXTS))
+            groups = groups + result.groups
+            wechat_info = result.info()
+            wechat_skipped = result.skipped
+
+    return groups, {"staging": staging, "mails": mails, "with_att": with_att, "manifest": manifest,
+                    "wechat": wechat_info, "wechat_skipped": wechat_skipped}
 
 
 def main() -> int:
@@ -58,6 +73,8 @@ def main() -> int:
     parser.add_argument("--since", default=None)
     parser.add_argument("--before", default=None)
     parser.add_argument("--replay", default=None)
+    parser.add_argument("--wechat-dir", default=None, help="临时覆盖微信入站目录")
+    parser.add_argument("--no-wechat", action="store_true", help="本次不收微信来源")
     args = parser.parse_args()
 
     cfg = config.load_config()
@@ -72,6 +89,12 @@ def main() -> int:
         (records if record is not None else not_invoice).append(record or group)
 
     print(f"\n暂存目录 {info['staging']}")
+    if info.get("wechat"):
+        w = info["wechat"]
+        print(f"微信来源 {w['inboundDir']}：窗口内 {w['filesInWindow']} 个文件，"
+              f"发票 {w['invoiceFiles']} 个，非文档忽略 {w['ignoredByExtension'] or '无'}")
+        for item in info.get("wechat_skipped") or []:
+            print(f"         跳过留痕  {item['filename'][:52]:<54} {item['reason']}")
     print(f"邮件 {info['mails']} 封（有附件 {info['with_att']}）｜分组 {len(groups)}｜"
           f"判定为发票 {len(records)}｜不像发票 {len(not_invoice)}")
 

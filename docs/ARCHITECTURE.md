@@ -10,6 +10,7 @@
                  ├─ config.py     配置装载 + 凭据解析（授权码只读自 DSH 配置库）
                  ├─ textutil.py   命名、金额、日期、城市、项目名等纯函数
                  ├─ mailfetch.py  IMAP 窗口采集 + 附件按基名分组
+                 ├─ wechatfetch.py 微信入站目录采集（第二个来源，产出同构 Group）
                  ├─ extract.py    XML 优先 / PDF(PyMuPDF) 兜底 → Meta / ItineraryMeta
                  ├─ classify.py   去重 / 抬头 / 用途 / 行程聚类 / 存疑判定
                  ├─ archive.py    目录与命名落盘（复刻参考案例约定）
@@ -23,6 +24,7 @@
 | `config` | 读 config.json、从 dsh-qqmail.json 取凭据、抬头表 | 任何 IO 语义判断 |
 | `textutil` | 纯函数：命名清洗、金额/日期/城市正则 | 读文件、连网络 |
 | `mailfetch` | IMAP 只读采集、附件落盘、分组、manifest 读写 | 解析发票内容 |
+| `wechatfetch` | 扫微信入站目录、窗口过滤、扩展名策略、md5 去重、产出同构 Group | 解析发票内容、决定归档位置 |
 | `extract` | 从 XML / PDF 文本里抽字段 | 判断抬头归属、决定目录 |
 | `classify` | 规则：抬头/用途/类型/行程/存疑/去重 | 落盘、写报告 |
 | `archive` | 目录与文件名、幂等闸门、复制文件 | 决定记录该去哪（由 classify 的原因决定） |
@@ -33,11 +35,16 @@
 ## 数据流
 
 ```
-IMAP INBOX
-  │  SINCE/BEFORE 裸原子日期窗口（绝不能加括号）
-  ▼
-data/staging/{YYYYMMDD}/  附件 + manifest.json（含 preview，供 --replay 复算）
-  │  按基名分组：PDF 作载体，XML/OFD/图片作同伴，行程单另挂
+来源一：IMAP INBOX                    来源二：微信入站目录 assets\inbound\
+  │  SINCE/BEFORE 裸原子日期窗口        │  文件名日期前缀落窗 + md5 去重 + 只收 PDF
+  │  （绝不能加括号）                   │  图片不收（留痕）、silk 等只计数
+  └────────────────┬───────────────────┘
+                   ▼
+data/staging/{YYYYMMDD}/  附件 + manifest.json（含 preview，供 --replay 复算；只覆盖邮箱来源）
+  │  邮箱：按基名分组（PDF 作载体，XML/OFD 作同伴，行程单另挂）
+  │  微信：一个 PDF 就是一组
+  │  两来源合并时邮箱排在前面 —— 同一张票两边都来时，去重保留先到的邮箱记录
+  │  （邮箱有正文，认得出住宿城市与入住日期；微信没有正文）
   ▼
 Record 列表（每条 = 一张发票）
   │  去重主键 = 发票号码；无号码退化为 (金额, 开票日期, 销售方)

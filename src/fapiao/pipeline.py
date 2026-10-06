@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import archive, classify, config, mailfetch, report
+from . import archive, classify, config, mailfetch, report, wechatfetch
 from .models import Group, Record
 from .textutil import month_range
 
@@ -33,6 +33,7 @@ def run(
     since: date | None = None,
     before: date | None = None,
     root_override: Path | None = None,
+    wechat_dir: Path | None = None,
     log=print,
 ) -> RunResult:
     mail_cfg = cfg.get("mail") or {}
@@ -42,11 +43,14 @@ def run(
     run_key = run_date.strftime("%Y%m%d")
 
     # ---------- 1. 采集 ----------
+    wechat_cfg = cfg.get("wechat") or {}
     groups: list[Group] = []
     mail_scanned = 0
     mail_with_attachments = 0
+    wechat_skipped: list[dict] = []
+    wechat_info: dict | None = None
     if replay_dir is not None:
-        log(f"[重放] 从本地暂存目录读取：{replay_dir}")
+        log(f"[重放] 从本地暂存目录读取：{replay_dir}（重放只针对邮箱来源，不含微信来源）")
         groups, mail_scanned, mail_with_attachments = mailfetch.load_manifest(Path(replay_dir))
     else:
         cred = config.resolve_credentials(cfg)
@@ -61,11 +65,31 @@ def run(
             max_mails=int(mail_cfg.get("maxMailsPerRun") or 3000),
             log=log,
         )
+        # 微信来源排在邮箱之后：同一张发票两边都来时，去重会保留先到的邮箱记录
+        # （邮箱记录带邮件正文，能认出住宿城市与入住日期，上下文更全）。
+        if wechat_cfg.get("enabled", True):
+            inbound = wechat_dir or wechat_cfg.get("inboundDir")
+            if inbound:
+                wechat = wechatfetch.collect(
+                    Path(inbound), window[0], window[1],
+                    accept_exts=tuple(wechat_cfg.get("acceptExtensions") or wechatfetch.DEFAULT_ACCEPT_EXTS),
+                    log=log,
+                )
+                groups.extend(wechat.groups)
+                wechat_skipped = wechat.skipped
+                wechat_info = wechat.info()
+            else:
+                log("[微信] 未配置 inboundDir，跳过微信来源")
+        else:
+            log("[微信] 配置里已关闭微信来源")
 
     # ---------- 2. 解析 + 3. 归类 ----------
     records: list[Record] = []
     orphan_itineraries: list[tuple[str, str]] = []
-    skipped = {"mails": [], "attachments": [], "duplicates": [], "orphan_itineraries": []}
+    skipped = {
+        "mails": [], "attachments": [], "duplicates": [], "orphan_itineraries": [],
+        "wechat": list(wechat_skipped),
+    }
 
     for group in groups:
         if group.invoice is None:
@@ -132,6 +156,7 @@ def run(
             run_date=run_date, window=window, records=all_records, skipped=skipped,
             mail_scanned=mail_scanned, mail_with_attachments=mail_with_attachments,
             merged=[], include_since_year=archive_cfg.get("includeSinceYear"),
+            wechat_info=wechat_info,
         )
         return RunResult(run_dir=None, summary=summary, records=all_records, skipped=skipped)
 
@@ -155,6 +180,7 @@ def run(
         run_date=run_date, window=window, records=all_records, skipped=skipped,
         mail_scanned=mail_scanned, mail_with_attachments=mail_with_attachments,
         merged=merged, include_since_year=archive_cfg.get("includeSinceYear"),
+        wechat_info=wechat_info,
     )
     report.write_summary(run_dir, (cfg.get("report") or {}).get("summaryName") or "00_审计摘要.json", summary)
     report.write_records(run_dir, all_records)

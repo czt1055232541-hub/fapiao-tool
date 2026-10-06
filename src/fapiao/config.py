@@ -30,6 +30,11 @@ DEFAULTS: dict = {
         "keepOfd": False,
         "includeSinceYear": None,
     },
+    "wechat": {
+        "enabled": True,
+        "inboundDir": "",
+        "acceptExtensions": [".pdf"],
+    },
     "classify": {
         "buyers": [],
         "homeCity": "杭州",

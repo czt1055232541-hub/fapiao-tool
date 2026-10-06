@@ -71,6 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="连邮箱采集并算结果，但不落盘")
     parser.add_argument("--force", action="store_true", help="允许覆盖已存在的运行目录（会先清空）")
     parser.add_argument("--out-root", type=Path, default=None, help="临时覆盖归档根目录")
+    parser.add_argument("--wechat-dir", type=Path, default=None, help="临时覆盖微信入站目录（assets/inbound）")
+    parser.add_argument("--no-wechat", action="store_true", help="本次不收微信来源，只用邮箱")
     parser.add_argument("--doctor", action="store_true", help="自检：打印配置、凭据与窗口内邮件数，不写归档")
     return parser
 
@@ -85,6 +87,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.doctor:
         return _doctor(cfg, run_date, since, before)
+
+    if args.no_wechat:
+        cfg.setdefault("wechat", {})["enabled"] = False
 
     return _run_with_log(cfg, run_date, args, since, before)
 
@@ -110,6 +115,7 @@ def _run_with_log(cfg: dict, run_date: date, args, since, before) -> int:
             since=since,
             before=before,
             root_override=args.out_root,
+            wechat_dir=args.wechat_dir,
         )
         if result.run_dir is None:
             print("[预演] 未写归档。")
@@ -136,6 +142,18 @@ def _doctor(cfg: dict, run_date: date, since: date | None, before: date | None) 
     window = (since, before) if (since and before) else month_range(run_date, int(mail_cfg.get('extraLookbackDays') or 0))
     print(f"采集窗口        : {window[0]} ~ {window[1]}（不含）")
     print(f"统计起始年份    : {archive_cfg.get('includeSinceYear') or '不限'}")
+    wechat_cfg = cfg.get("wechat") or {}
+    inbound = wechat_cfg.get("inboundDir") or "(未配置)"
+    print(f"微信来源        : {'开' if wechat_cfg.get('enabled', True) else '关'}  入站目录：{inbound}"
+          f"  只收 {wechat_cfg.get('acceptExtensions') or ['.pdf']}")
+    if inbound != "(未配置)":
+        from pathlib import Path as _Path
+
+        from . import wechatfetch
+
+        probe = wechatfetch.collect(_Path(inbound), window[0], window[1], log=lambda *_a, **_k: None)
+        print(f"  窗口内文件    : {probe.files_in_window} 个（其中发票 {probe.invoice_files} 个，"
+              f"跳过留痕 {len(probe.skipped)} 个，非文档 {probe.ignored_by_extension or '无'}）")
     try:
         cred = config.resolve_credentials(cfg)
     except Exception as exc:  # noqa: BLE001

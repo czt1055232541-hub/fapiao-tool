@@ -15,6 +15,11 @@
     "keepOfd": false,
     "includeSinceYear": null
   },
+  "wechat": {
+    "enabled": true,
+    "inboundDir": "<微信入站目录>",
+    "acceptExtensions": [".pdf"]
+  },
   "classify": {
     "buyers": [
       {

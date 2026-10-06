@@ -29,6 +29,7 @@ def summary_payload(
     mail_with_attachments: int,
     merged: list[dict],
     include_since_year: int | None,
+    wechat_info: dict | None = None,
 ) -> dict:
     included = [r for r in records if r.included]
     excluded = [r for r in records if not r.included]
@@ -44,6 +45,7 @@ def summary_payload(
         "window": {"since": window[0].isoformat(), "before": window[1].isoformat()},
         "mail_scanned": mail_scanned,
         "mail_with_attachments": mail_with_attachments,
+        "wechat_source": wechat_info or {"enabled": False},
         "archive_invoice_count": len(records),
         "included_invoice_count": len(included),
         "excluded_invoice_count": len(excluded),

@@ -13,6 +13,22 @@
 
 双击 `每月整理.cmd`。窗口会显示全过程，结束时停留等你按键。
 
+### 两个来源一起收
+
+| 来源 | 位置 | 说明 |
+|---|---|---|
+| 邮箱 | QQ 邮箱 INBOX | 窗口内邮件的发票附件 |
+| **微信** | `<微信入站目录>\` | 老板丢进微信对话的票据，由桥接自动落盘 |
+
+微信来源的规则：**只收 `.pdf`**；图片不收（只留痕）；OFD/XML 不收；同内容按 md5 去重；
+`.silk` 语音只记计数。窗口按**文件名日期前缀**判定（`2026-10-06_...`），无前缀退回文件修改时间。
+
+看它会收什么、不收什么，跑一次预演最直观：
+
+```bash
+python scripts/preview.py --run-date 2026-10-20    # 会逐条打印微信入站目录的"跳过留痕"
+```
+
 ## 命令一览
 
 ```bash
@@ -20,8 +36,10 @@ python scripts/run_monthly.py                     # 真实运行（最近一个�
 python scripts/run_monthly.py --run-date 2026-10-20   # 模拟某次 20 号执行
 python scripts/run_monthly.py --dry-run           # 连邮箱算结果，但不落盘
 python scripts/run_monthly.py --doctor            # 自检：配置 + 凭据 + 窗口邮件数
-python scripts/run_monthly.py --replay data/staging/20260920   # 离线重放，不连邮箱
+python scripts/run_monthly.py --replay data/staging/20260920   # 离线重放，不连邮箱（不含微信来源）
 python scripts/run_monthly.py --force             # 覆盖已存在的运行目录（先清空）
+python scripts/run_monthly.py --no-wechat         # 本次只收邮箱，不收微信
+python scripts/run_monthly.py --wechat-dir "E:\别的目录"   # 临时换微信入站目录
 
 python scripts/preview.py --run-date 2026-10-20   # 预演：打印明细表 + 行程聚类，不写盘
 python scripts/preview.py --replay data/staging/20260920

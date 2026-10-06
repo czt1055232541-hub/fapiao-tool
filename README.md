@@ -1,22 +1,24 @@
 # 发票工具（fapiao）
 
-每月 20 号自动从 QQ 邮箱收集发票，按参考案例 `<参考案例目录>`
-的整理方式，归档成可直接交给财务的报销材料。
+每月 20 号自动从**两个来源**收集发票——QQ 邮箱、以及微信里老板发来的票据——
+按参考案例 `<参考案例目录>` 的整理方式，
+归档成可直接交给财务的报销材料。
 
 **数据不出本机**：只读写本机文件、只连一台 IMAP 服务器（`imap.qq.com`），不上传任何内容。
 
-## 当前状态（验证于 2026-09-29，v1.1）
+## 当前状态（验证于 2026-10-06，v1.2）
 
 | 项 | 实际情况 |
 |---|---|
-| 代码 | v1.0，35 个受控文件；`src/fapiao/` 8 个模块 + `scripts/` 5 个脚本 + `tests/` 7 个测试文件 |
+| 代码 | v1.2；`src/fapiao/` 9 个模块 + `scripts/` 6 个脚本 + `tests/` 8 个测试文件 |
 | 数据 | 归档在 `<归档根目录>\`，与仓库物理分离，**不进版本控制** |
 | 真实产出 | `归档\20260920月度发票归集(9372.25)\`：52 张发票 / 计入 50 张 / 9372.25 元 / 存疑 2 张 |
 | 依赖 | Python 3.13.2 / PyMuPDF / pypdf / openpyxl（pdfplumber 未安装，不使用） |
 | 自动化 | 计划任务「月度发票收集整理」**已注册**：Ready，每月 20 日 09:00，**下次运行 2026-10-20 09:00**；已手动触发实测跑通（`LastTaskResult=0x0`） |
-| 回归 | `python scripts/check_all.py` = 7 项全绿；68 个离线单测（零网络零费用） |
+| 微信来源 | **已接入**：只收 `assets/inbound/` 里的 `.pdf`，图片不收只留痕，同内容按 md5 去重。实测该目录窗口内 10 个文件 → 2 张发票 + 6 条留痕 + 2 条语音计数 |
+| 回归 | `python scripts/check_all.py` = 7 项全绿；81 个离线单测（零网络零费用） |
 | 归档复核 | `python scripts/verify_archive.py "<归档目录>"` = 6 类检查通过 |
-| 回滚点 | `stage-full-pipeline` / `stage-real-mail-integration` / `stage-v1.0-real-archive` / `stage-v1.1-automation-live`（见 `PROJECT_STATE.md`） |
+| 回滚点 | `stage-full-pipeline` / `stage-real-mail-integration` / `stage-v1.0-real-archive` / `stage-v1.1-automation-live` / `stage-v1.2-wechat-source`（见 `PROJECT_STATE.md`） |
 
 ## 文档地图
 
@@ -27,13 +29,15 @@
 | `docs/ARCHITECTURE.md` | 分层、模块边界、数据流、不变量、退出码 | 改代码的人 |
 | `docs/GOAL.md` | 目标 + 已验证事实 + 默认决策 | 接手的 agent |
 | `PROJECT_STATE.md` | **唯一进度事实** | 所有人 |
-| `AGENTS.md` | 开发规则与 13 条环境坑位（每轮注入） | agent |
+| `AGENTS.md` | 开发规则与 20 条环境坑位（每轮注入） | agent |
 
 阅读顺序：`AGENTS.md` → `docs/GOAL.md` → `PROJECT_STATE.md` → `git status` → 跑基线。
 
 ## 日常使用
 
-1. 双击 `每月整理.cmd`（默认整理"上月21日~本月20日"窗口）。
+1. 双击 `每月整理.cmd`（默认整理"上月21日~本月20日"窗口，**邮箱 + 微信两个来源一起收**）。
+   - 老板把发票丢进微信对话即可；桥接会自动落到 `<微信入站目录>\`
+   - 微信来源**只认 PDF**；发图片或 OFD 不会被归档，只在 `00_审计摘要.json` 的 `skipped.wechat` 里留痕
 2. 结果在 `<归档根目录>\{运行日}月度发票归集({总额})\`。
 3. 先看 `00_发票审计明细及汇总.xlsx`；黄行是存疑，去 `99_存疑待人工审计\` 核对。
 4. 交给财务用 `00_汇总发票\` 里的分类合并 PDF（按分类各一份，不含行程单）。
