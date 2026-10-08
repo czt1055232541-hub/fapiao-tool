@@ -73,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out-root", type=Path, default=None, help="临时覆盖归档根目录")
     parser.add_argument("--wechat-dir", type=Path, default=None, help="临时覆盖微信入站目录（assets/inbound）")
     parser.add_argument("--no-wechat", action="store_true", help="本次不收微信来源，只用邮箱")
+    naming = parser.add_mutually_exclusive_group()
+    naming.add_argument("--monthly", action="store_true",
+                        help="按每月执行日归档（目录名带总额）；默认按运行日自动判断")
+    naming.add_argument("--mid-month", action="store_true",
+                        help="按月中临时归档（目录名不带总额）")
     parser.add_argument("--doctor", action="store_true", help="自检：打印配置、凭据与窗口内邮件数，不写归档")
     return parser
 
@@ -91,10 +96,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.no_wechat:
         cfg.setdefault("wechat", {})["enabled"] = False
 
-    return _run_with_log(cfg, run_date, args, since, before)
+    monthly = True if args.monthly else (False if args.mid_month else None)
+    return _run_with_log(cfg, run_date, args, since, before, monthly)
 
 
-def _run_with_log(cfg: dict, run_date: date, args, since, before) -> int:
+def _run_with_log(cfg: dict, run_date: date, args, since, before, monthly=None) -> int:
     """跑主流程，并把输出同时留一份日志。
 
     注意：结束前必须把 sys.stdout/stderr 还原成原对象再关文件句柄，
@@ -116,6 +122,7 @@ def _run_with_log(cfg: dict, run_date: date, args, since, before) -> int:
             before=before,
             root_override=args.out_root,
             wechat_dir=args.wechat_dir,
+            monthly=monthly,
         )
         if result.run_dir is None:
             print("[预演] 未写归档。")
@@ -151,9 +158,16 @@ def _doctor(cfg: dict, run_date: date, since: date | None, before: date | None) 
 
         from . import wechatfetch
 
-        probe = wechatfetch.collect(_Path(inbound), window[0], window[1], log=lambda *_a, **_k: None)
+        probe = wechatfetch.collect(_Path(inbound), window[0], window[1], log=lambda *_a, **_k: None)  # noqa: E501
         print(f"  窗口内文件    : {probe.files_in_window} 个（其中发票 {probe.invoice_files} 个，"
               f"跳过留痕 {len(probe.skipped)} 个，非文档 {probe.ignored_by_extension or '无'}）")
+    from . import exclusions as _excl
+
+    table = _excl.load(archive_cfg.get("exclusionsFile") or None)
+    print(f"排除清单        : {_excl.DEFAULT_PATH if not archive_cfg.get('exclusionsFile') else archive_cfg['exclusionsFile']}"
+          f"  共 {len(table)} 条" + (f" -> {', '.join(sorted(table))}" if table else ""))
+    print(f"归档命名        : 执行日 {run_date.day >= 20 and '是' if False else ('是' if run_date.day >= 20 else '否')}"
+          f"  -> {'{运行日}月度发票归集(总额)' if run_date.day >= 20 else '{运行日}月度发票归集'}")
     try:
         cred = config.resolve_credentials(cfg)
     except Exception as exc:  # noqa: BLE001

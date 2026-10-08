@@ -8,6 +8,7 @@
        └─ src/fapiao/cli.py    argparse、日志留存、退出码约定
             └─ src/fapiao/pipeline.py   编排：采集 → 解析 → 归类 → 归档 → 报告 → 自检
                  ├─ config.py     配置装载 + 凭据解析（授权码只读自 DSH 配置库）
+                 ├─ exclusions.py 排除清单（按发票号码：作废 / 交由他人报销 / 月中已报销）
                  ├─ textutil.py   命名、金额、日期、城市、项目名等纯函数
                  ├─ mailfetch.py  IMAP 窗口采集 + 附件按基名分组
                  ├─ wechatfetch.py 微信入站目录采集（第二个来源，产出同构 Group）
@@ -25,9 +26,10 @@
 | `textutil` | 纯函数：命名清洗、金额/日期/城市正则 | 读文件、连网络 |
 | `mailfetch` | IMAP 只读采集、附件落盘、分组、manifest 读写 | 解析发票内容 |
 | `wechatfetch` | 扫微信入站目录、窗口过滤、扩展名策略、md5 去重、产出同构 Group | 解析发票内容、决定归档位置 |
+| `exclusions` | 读写排除清单（号码 + 原因） | 决定排除后怎么记账（由 pipeline 落进 skipped） |
 | `extract` | 从 XML / PDF 文本里抽字段 | 判断抬头归属、决定目录 |
 | `classify` | 规则：抬头/用途/类型/行程/存疑/去重 | 落盘、写报告 |
-| `archive` | 目录与文件名、幂等闸门、复制文件 | 决定记录该去哪（由 classify 的原因决定） |
+| `archive` | 目录与文件名、幂等闸门、复制文件、执行日合并同窗口旧目录 | 决定记录该去哪（由 classify 的原因决定） |
 | `report` | 摘要 JSON、Excel、合并 PDF、金额一致性自检 | 改记录内容 |
 
 规则本身写在 `docs/整理要求.md`，代码只实现规则。改规则 = 改那份文档 + 改 `classify`。

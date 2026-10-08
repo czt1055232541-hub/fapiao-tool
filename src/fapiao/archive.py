@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import date
 from pathlib import Path
@@ -104,6 +105,56 @@ def place_orphan_itinerary(run_dir: Path, path: str, filename: str) -> str:
         out = out.with_suffix(".pdf")
     shutil.copy2(path, out)
     return str(out.relative_to(run_dir))
+
+
+def consolidate_same_window(
+    root: Path, run_dir: Path, window: tuple[date, date], records: list[Record], log=print
+) -> list[str]:
+    """执行日合并：把同一采集窗口的旧目录并掉（那是月中提前生成的）。
+
+    安全闸门：**只有当旧目录里的每一张发票都能在新目录里按发票号码找到时才删**；
+    少一张就保留并报告，绝不拿"反正差不多"去赌。返回被删掉的目录名。
+    """
+    have = {r.invoice_number for r in records if r.invoice_number and r.invoice_number != "未识别"}
+    wanted = (window[0].isoformat(), window[1].isoformat())
+    removed: list[str] = []
+    if not root.is_dir():
+        return removed
+
+    for path in sorted(root.iterdir()):
+        if not path.is_dir() or path.resolve() == run_dir.resolve():
+            continue
+        summary_file = path / "00_审计摘要.json"
+        if not summary_file.is_file():
+            continue
+        try:
+            payload = json.loads(summary_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        other = payload.get("window") or {}
+        if (other.get("since"), other.get("before")) != wanted:
+            continue
+
+        numbers: set[str] = set()
+        detail = path / "00_审计明细.json"
+        if detail.is_file():
+            try:
+                numbers = {
+                    str(item.get("invoice_number"))
+                    for item in json.loads(detail.read_text(encoding="utf-8"))
+                    if item.get("invoice_number") and item.get("invoice_number") != "未识别"
+                }
+            except (OSError, ValueError, TypeError):
+                numbers = set()
+
+        missing = numbers - have
+        if missing:
+            log(f"[合并] 保留 {path.name}：它有新目录里没有的发票号 {sorted(missing)}")
+            continue
+        shutil.rmtree(path)
+        removed.append(path.name)
+        log(f"[合并] 已并入并删除重复的月中目录：{path.name}（{len(numbers)} 张发票全部已在新目录中）")
+    return removed
 
 
 def prepare_run_dir(root: Path, name: str, force: bool) -> Path:

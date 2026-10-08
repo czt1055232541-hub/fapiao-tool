@@ -40,6 +40,12 @@ python scripts/run_monthly.py --replay data/staging/20260920   # 离线重放，
 python scripts/run_monthly.py --force             # 覆盖已存在的运行目录（先清空）
 python scripts/run_monthly.py --no-wechat         # 本次只收邮箱，不收微信
 python scripts/run_monthly.py --wechat-dir "E:\别的目录"   # 临时换微信入站目录
+python scripts/run_monthly.py --monthly           # 强制按"每月执行日"归档（名字带总额）
+python scripts/run_monthly.py --mid-month         # 强制按"月中"归档（名字不带总额）
+
+python scripts/manage_exclusions.py list                                      # 排除清单
+python scripts/manage_exclusions.py add <发票号码> --reason "交由他人报销"      # 排除某张票
+python scripts/manage_exclusions.py remove <发票号码>
 
 python scripts/preview.py --run-date 2026-10-20   # 预演：打印明细表 + 行程聚类，不写盘
 python scripts/preview.py --replay data/staging/20260920
@@ -49,6 +55,28 @@ python scripts/check_privacy.py                   # 只看隐私闸门
 python scripts/verify_archive.py "<归档根目录>\20260920月度发票归集(9372.25)"   # 复核某份归档是否自洽
 powershell -ExecutionPolicy Bypass -File scripts/check_task.ps1   # 只看计划任务状态
 ```
+
+## 归档目录命名与执行日合并
+
+| 什么时候跑 | 目录名 | 说明 |
+|---|---|---|
+| 月中（运行日 < 20） | `{运行日}月度发票归集` | 不带总额 —— 这个月后面还会进票 |
+| 每月执行日（运行日 ≥ 20） | `{运行日}月度发票归集({计入总额})` | 总额已确定 |
+
+执行日那趟跑完会**自动合并同采集窗口的月中临时目录**：只有当月中目录里的每张发票都能在新目录里
+按发票号码找到时才删它，少一张就保留并在日志里报告。不想要这个行为就在 `config.json` 里把
+`archive.consolidateOnMonthlyRun` 设为 `false`。
+
+## 某张票不该计入
+
+```bash
+python scripts/manage_exclusions.py add 25495606207001213771 --reason "交由他人报销" --note "..."
+```
+
+用于：作废/开错的票、已交由他人报销的票、月中已经报销过、月末不重复计入的票。
+
+**只排除，不删源文件**；理由是必填项；每次运行都会写进 `00_审计摘要.json -> skipped.excludedByNumber`
+（含金额、原因、备注、来源路径）。
 
 ## 自动化（已启用）
 

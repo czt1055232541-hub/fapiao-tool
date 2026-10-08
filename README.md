@@ -6,7 +6,7 @@
 
 **数据不出本机**：只读写本机文件、只连一台 IMAP 服务器（`imap.qq.com`），不上传任何内容。
 
-## 当前状态（验证于 2026-10-06，v1.2）
+## 当前状态（验证于 2026-10-06，v1.3）
 
 | 项 | 实际情况 |
 |---|---|
@@ -16,9 +16,11 @@
 | 依赖 | Python 3.13.2 / PyMuPDF / pypdf / openpyxl（pdfplumber 未安装，不使用） |
 | 自动化 | 计划任务「月度发票收集整理」**已注册**：Ready，每月 20 日 09:00，**下次运行 2026-10-20 09:00**；已手动触发实测跑通（`LastTaskResult=0x0`） |
 | 微信来源 | **已接入**：只收 `assets/inbound/` 里的 `.pdf`，图片不收只留痕，同内容按 md5 去重。实测该目录窗口内 10 个文件 → 2 张发票 + 6 条留痕 + 2 条语音计数 |
-| 回归 | `python scripts/check_all.py` = 7 项全绿；81 个离线单测（零网络零费用） |
+| 排除清单 | `exclusions.json`：按发票号码剔除作废票 / 已交由他人报销的票 / 月中已报销的票。**只排除，不删源文件** |
+| 归档命名 | 月中跑 → `{运行日}月度发票归集`（不带总额）；执行日跑 → `{运行日}月度发票归集({总额})`；执行日跑完自动合并同窗口的月中目录 |
+| 回归 | `python scripts/check_all.py` = 7 项全绿；94 个离线单测（零网络零费用） |
 | 归档复核 | `python scripts/verify_archive.py "<归档目录>"` = 6 类检查通过 |
-| 回滚点 | `stage-full-pipeline` / `stage-real-mail-integration` / `stage-v1.0-real-archive` / `stage-v1.1-automation-live` / `stage-v1.2-wechat-source`（见 `PROJECT_STATE.md`） |
+| 回滚点 | `stage-full-pipeline` / `stage-real-mail-integration` / `stage-v1.0-real-archive` / `stage-v1.1-automation-live` / `stage-v1.2-wechat-source` / `stage-v1.3-exclusions-and-naming`（见 `PROJECT_STATE.md`） |
 
 ## 文档地图
 
@@ -41,6 +43,15 @@
 2. 结果在 `<归档根目录>\{运行日}月度发票归集({总额})\`。
 3. 先看 `00_发票审计明细及汇总.xlsx`；黄行是存疑，去 `99_存疑待人工审计\` 核对。
 4. 交给财务用 `00_汇总发票\` 里的分类合并 PDF（按分类各一份，不含行程单）。
+
+某张票不该计入（作废 / 已交由他人报销 / 月中已报销）：
+
+```bash
+python scripts/manage_exclusions.py add <发票号码> --reason "交由他人报销" --note "..."
+python scripts/manage_exclusions.py list
+```
+
+排除只影响归档与统计，**源文件不删**；每次运行都会在 `00_审计摘要.json -> skipped.excludedByNumber` 留痕。
 
 **自动化已启用**：计划任务「月度发票收集整理」每月 20 日 09:00 自动执行 `每月整理.cmd`。
 改时间或删除：

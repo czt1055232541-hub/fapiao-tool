@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import archive, classify, config, mailfetch, report, wechatfetch
+from . import archive, classify, config, exclusions, mailfetch, report, wechatfetch
 from .models import Group, Record
 from .textutil import month_range
 
@@ -34,6 +34,7 @@ def run(
     before: date | None = None,
     root_override: Path | None = None,
     wechat_dir: Path | None = None,
+    monthly: bool | None = None,
     log=print,
 ) -> RunResult:
     mail_cfg = cfg.get("mail") or {}
@@ -88,7 +89,7 @@ def run(
     orphan_itineraries: list[tuple[str, str]] = []
     skipped = {
         "mails": [], "attachments": [], "duplicates": [], "orphan_itineraries": [],
-        "wechat": list(wechat_skipped),
+        "wechat": list(wechat_skipped), "excludedByNumber": [],
     }
 
     for group in groups:
@@ -124,6 +125,25 @@ def run(
                     "mail_uid": group.mail.uid, "subject": group.mail.subject,
                     "filename": att.filename, "reason": "OFD 版式文件按配置忽略（PDF 已归档）",
                 })
+
+    # ---------- 排除清单（作废 / 交由他人报销 / 月中已报销） ----------
+    table = exclusions.load(archive_cfg.get("exclusionsFile") or None)
+    if table:
+        hit = [r for r in records if r.invoice_number in table]
+        records = [r for r in records if r.invoice_number not in table]
+        for record in hit:
+            entry = table[record.invoice_number]
+            skipped["excludedByNumber"].append({
+                "invoice_number": record.invoice_number,
+                "amount": record.amount,
+                "reason": entry.get("reason") or "未写明原因",
+                "note": entry.get("note") or "",
+                "source": record.source_invoice or record.mail_uid,
+            })
+            log(f"[排除] {record.invoice_number} {record.amount:.2f} 元 —— {entry.get('reason')}"
+                f"（{entry.get('note') or '无备注'}）")
+        if hit:
+            log(f"[排除] 共排除 {len(hit)} 张；源文件未删除，只从归档与统计里剔除")
 
     kept, duplicates = classify.dedupe(records)
     for dup in duplicates:
@@ -162,12 +182,15 @@ def run(
 
     # ---------- 4. 归档 ----------
     root = root_override or Path(archive_cfg.get("root") or (config.PROJECT_ROOT / "归档"))
-    name = archive.run_folder_name(
-        archive_cfg.get("folderTemplate") or "{runDate}月度发票归集({total:.2f})",
-        run_date, included_total,
-    )
+    # 命名策略（2026-10-06 定的口径）：
+    #   月中临时归档 -> {运行日}月度发票归集       （不带总额，因为后面还会再进票）
+    #   每月执行日   -> {运行日}月度发票归集(总额)  （总额已确定）
+    is_monthly = monthly if monthly is not None else run_date.day >= 20
+    template_key = "folderTemplate" if is_monthly else "midMonthTemplate"
+    fallback = "{runDate}月度发票归集({total:.2f})" if is_monthly else "{runDate}月度发票归集"
+    name = archive.run_folder_name(archive_cfg.get(template_key) or fallback, run_date, included_total)
     run_dir = archive.prepare_run_dir(root, name, force)
-    log(f"[归档] 输出目录：{run_dir}")
+    log(f"[归档] 输出目录：{run_dir}（{'每月执行日' if is_monthly else '月中临时归档'}命名）")
 
     for record in all_records:
         archive.place(record, run_dir, cfg)
@@ -188,6 +211,8 @@ def run(
         run_dir, (cfg.get("report") or {}).get("excelName") or "00_发票审计明细及汇总.xlsx",
         all_records, summary, merged_folder,
     )
+    if is_monthly and archive_cfg.get("consolidateOnMonthlyRun", True):
+        archive.consolidate_same_window(root, run_dir, window, all_records, log=log)
     verify_run(run_dir, summary, all_records)
     log(f"[完成] {run_dir}")
     log(f"[完成] 计入 {summary['included_invoice_count']} 张 / {summary['included_total']:.2f} 元；"
