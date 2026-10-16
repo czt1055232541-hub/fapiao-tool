@@ -77,6 +77,10 @@ python scripts/run_monthly.py --replay data/staging/20260920   # 离线重放，
 python scripts/run_monthly.py --force             # 覆盖已存在的运行目录
 
 python scripts/preview.py --run-date 2026-10-20   # 预演：明细表 + 行程聚类，不写盘
+
+# 按预约报销单把发票+行程单合并成打印件（输出到 _打印用合并PDF\）
+python scripts/merge_reimbursement.py "<…\03_已至报销单>" --each-subfolder
+python scripts/merge_reimbursement.py "<…\预约号-12340000差旅报销>" --dry-run
 python scripts/check_all.py                       # 验证基线（7 项）
 python scripts/verify_archive.py "<归档目录>"      # 复核某份归档是否自洽
 ```

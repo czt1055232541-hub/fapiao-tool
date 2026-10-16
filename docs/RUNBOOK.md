@@ -56,6 +56,24 @@ python scripts/verify_archive.py "<归档根目录>\20260920月度发票归集(9
 powershell -ExecutionPolicy Bypass -File scripts/check_task.ps1   # 只看计划任务状态
 ```
 
+## 按预约报销单合并打印件
+
+月度归档完成后，你会把发票分配到各张预约单下（`03_已至报销单\预约号-xxxxx…\`）。
+要打印时，把每张预约单名下的发票与行程单各合并成一份 PDF：
+
+```bash
+# 先看会合并什么（不写盘）
+python scripts/merge_reimbursement.py "<…\03_已至报销单>" --each-subfolder --dry-run
+
+# 真合并
+python scripts/merge_reimbursement.py "<…\03_已至报销单>" --each-subfolder
+```
+
+- 输出到 `<03_已至报销单>\_打印用合并PDF\`，命名 `{预约号}_{金额}_发票与行程单.pdf`
+- **预约单本身不会被合并进去**（它是要跟附件一起交的另一份文件）；用 `--exclude 前缀` 可以再排除别的
+- 排序按文件名开头的三位序号，所以每张发票后面紧跟着它自己的行程单
+- 每份源文件加一个书签；合并后校验页数 = 各源文件页数之和，对不上就报错且不留半成品
+
 ## 归档目录命名与执行日合并
 
 | 什么时候跑 | 目录名 | 说明 |
