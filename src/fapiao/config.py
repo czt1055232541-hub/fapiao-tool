@@ -126,10 +126,16 @@ PRESET_SERVERS = {
 
 
 def _candidate_credential_paths(cfg: dict) -> list[Path]:
-    paths: list[Path] = []
-    explicit = (cfg.get("mail") or {}).get("credentialPath") or ""
+    """候选凭据路径。
+
+    **明确指定了 credentialPath 就只认它**，文件不存在就报错，不静默回退。
+    否则在共用电脑上会拿着别人（或自己另一个工作区）的邮箱配置跑起来还能"自检通过"
+    —— 实测踩过：指定了一个不存在的路径，工具转头读了 DSH 的默认配置，读到了别人的邮箱。
+    """
+    explicit = str((cfg.get("mail") or {}).get("credentialPath") or "").strip()
     if explicit:
-        paths.append(Path(explicit))
+        return [Path(explicit)]
+    paths: list[Path] = []
     dsh_home = os.environ.get("DSH_HOME")
     if dsh_home:
         paths.append(Path(dsh_home) / "dsh-qqmail.json")
@@ -172,7 +178,9 @@ def resolve_credentials(cfg: dict) -> Credentials:
         )
     raise RuntimeError(
         "未能解析邮箱凭据，已尝试：\n  " + "\n  ".join(errors) + "\n"
-        "请先用 dsh-qqmail 插件配置邮箱（qqmail_config：email + authCode 授权码）。"
+        "请在 config.json 的 mail.credentialPath 指向一个这样的 JSON：\n"
+        '  {"email": "you@qq.com", "authCode": "十六位授权码"}\n'
+        "（QQ 邮箱网页版 设置 → 账号 → 开启 IMAP/SMTP 服务 后生成授权码，不是登录密码）"
     )
 
 
