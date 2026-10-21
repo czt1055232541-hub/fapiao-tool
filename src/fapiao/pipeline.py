@@ -158,9 +158,20 @@ def run(
     log(f"[归类] 发票 {len(records)} 张：去重保留 {len(kept)}、重复 {len(duplicates)}、"
         f"孤儿行程单 {len(orphan_itineraries)}")
 
+    # 行程归属的三道推断（顺序有讲究，见各函数 docstring）
+    paired = classify.pair_round_trip_flights(kept, cfg)
+    if paired:
+        log(f"[推断] 往返机票配对成功 {paired} 对，合并为同一趟行程")
+
     clusters = classify.cluster_trips(kept, cfg)
     classify.apply_trips(kept, clusters, cfg)
+
     all_records = kept + duplicates
+    moved = classify.propagate_batch_trips(kept, cfg, log=log)
+    adopted = classify.adopt_orphan_by_date(kept, clusters, cfg, log=log)
+    if moved or adopted:
+        log(f"[推断] 同批归属 {moved} 张、住宿按日期归入 {adopted} 张")
+
     classify.finalize(all_records, cfg)
     _apply_year_scope(all_records, archive_cfg.get("includeSinceYear"))
     _stamp_scope(all_records)

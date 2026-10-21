@@ -243,3 +243,41 @@ def flight_route(text: str) -> str:
         if left in CITY_NAMES and right in CITY_NAMES:
             return f"{left}-{right}"
     return ""
+
+
+# 「销售方地址:四川省遂宁市安居区…」——只认这一个字段，绝不全文扫
+# （全文扫会被「中国农业银行成都双楠支行」误导成成都，实测踩过）
+_SELLER_ADDR = re.compile(r"销售方地址[:：]\s*([^\n;；]{4,90})")
+_ADDR_CITY = re.compile(r"([\u4e00-\u9fff]{2,8}?)市")
+
+# 运单明细 / 对账单 / 结算单：有金额、有运单号，但**没有价税合计**，不是发票版式
+_DOCUMENT_ONLY = ("运单明细", "对账单", "结算单", "费用明细清单", "账单明细")
+
+
+def seller_address_city(text: str) -> str:
+    """从「销售方地址」字段抽城市：四川省遂宁市… -> 遂宁。抽不出一律返回空串。"""
+    match = _SELLER_ADDR.search(text or "")
+    if not match:
+        return ""
+    cities = _ADDR_CITY.findall(match.group(1))
+    if not cities:
+        return ""
+    city = cities[0]
+    # 「四川省遂宁」-> 「遂宁」：剥掉省/自治区/特别行政区前缀
+    for separator in ("自治区", "特别行政区", "省"):
+        if separator in city:
+            city = city.rsplit(separator, 1)[-1]
+    return city
+
+
+def looks_like_document_only(text: str, filename: str = "") -> bool:
+    """判断这其实是一份「清单」而不是发票。
+
+    顺丰的邮件会同时带真发票 PDF 和「顺丰电子发票 — 运单明细」PDF。后者也有发票号、
+    也有金额栏，会被当成发票，然后与真发票撞发票号 -> 变成"重复发票不重复计入"的假存疑
+    （2026-10 实测 3 条）。判据：命中清单类字样，且**正文没有「价税合计」**。
+    """
+    haystack = f"{filename or ''}\n{text or ''}"
+    if not any(marker in haystack for marker in _DOCUMENT_ONLY):
+        return False
+    return "价税合计" not in (text or "")

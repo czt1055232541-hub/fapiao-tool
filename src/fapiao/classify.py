@@ -26,6 +26,7 @@ R_UNPARSABLE = "无法解析发票内容"
 R_AMOUNT_MISMATCH = "行程单金额与发票金额不一致"
 R_NO_PDF = "缺少PDF版发票文件"
 R_NOT_AN_INVOICE = "附件不像发票，未纳入整理"
+R_DOCUMENT_ONLY = "运单/对账清单不是发票，未纳入整理"
 
 # 强特征：出现任意一个基本可以断定这是发票版式文件；普通 PDF（论文、策略稿）不会有。
 INVOICE_MARKERS = ("电子发票", "铁路电子客票", "价税合计", "发票号码", "增值税", "发票代码")
@@ -33,6 +34,8 @@ INVOICE_MARKERS = ("电子发票", "铁路电子客票", "价税合计", "发票
 PURPOSE_TRIP = "差旅费"
 PURPOSE_ENTERTAIN = "招待费"
 PURPOSE_TAXI_CITY = "杭州市内打车票"
+# 非差旅类：技术服务、快递收派、代订附加等。这类票不该套"必须有杭州往返闭环"的规则。
+PURPOSE_OTHER = "其他费用"
 
 KIND_TAXI = "打车"
 KIND_RAIL = "动车高铁"
@@ -46,6 +49,13 @@ _ENTERTAIN_WORDS = ("餐费", "餐饮", "糕点", "伙食", "宴请", "食品")
 _HOTEL_WORDS = ("住宿",)
 _FLIGHT_WORDS = ("机票", "机票款", "代订机票")
 _TAXI_WORDS = ("客运服务", "客运服务费", "出租车", "网约车", "运输服务")
+# 明确与出行无关的支出：技术服务、快递收派、会务培训等。
+# 只有命中这些才归「其他费用」（不要求行程闭环）；「代订附加」这类跟着机票/住宿走的
+# 旅行杂费**不在此列**，要让行程推断去认领它。
+_NON_TRAVEL_WORDS = (
+    "技术服务", "收派服务", "快递", "会务费", "培训费", "咨询服务",
+    "信息服务", "软件", "技术服务费", "设计服务", "印刷",
+)
 
 
 @dataclass
@@ -157,6 +167,13 @@ def prepare(group: Group, cfg: dict) -> tuple[Record | None, Meta, list[Skipped]
                     mail_uid=group.mail.uid, subject=group.mail.subject, filename=extra.filename)
         )
 
+    if raw_text and extract.looks_like_document_only(raw_text, group.key):
+        skipped.append(
+            Skipped(kind="attachment", reason=R_DOCUMENT_ONLY, mail_uid=group.mail.uid,
+                    subject=group.mail.subject, filename=group.key)
+        )
+        return None, meta, skipped
+
     if not is_probable_invoice(meta, raw_text, group.key, xml_att is not None, image_att is not None):
         skipped.append(
             Skipped(kind="attachment", reason=R_NOT_AN_INVOICE, mail_uid=group.mail.uid,
@@ -214,6 +231,11 @@ def detect_buyer(meta: Meta, full_text: str, cfg: dict) -> tuple[str, str]:
     return "抬头待核", ""
 
 
+def _is_non_travel(meta: Meta) -> bool:
+    joined = " ".join(meta.item_names) or ""
+    return any(word in joined for word in _NON_TRAVEL_WORDS)
+
+
 def detect_kind(meta: Meta, has_itinerary: bool, text: str) -> str:
     joined = " ".join(meta.item_names)
     if meta.is_rail:
@@ -254,7 +276,9 @@ def _location_and_date(
         # 餐饮发票正文里不写城市，只能从主题/销售方名称里认（参考实现也是这么做的）。
         city = extract.hotel_city(group.mail.subject, group.mail.text, meta.seller_name) or "地点待核"
         return city, (meta.issue_date or "日期待核")
-    return "地点待核", (meta.issue_date or "日期待核")
+    # 其他类：先看「销售方地址」字段（只认这个字段），认不出就是地点待核
+    city = extract.seller_address_city(full_text) or "地点待核"
+    return city, (meta.issue_date or "日期待核")
 
 
 def _build_record(
@@ -281,10 +305,11 @@ def _build_record(
 
     if kind == KIND_ENTERTAIN:
         purpose = PURPOSE_ENTERTAIN
+    elif kind == KIND_OTHER and _is_non_travel(meta):
+        # 技术服务 / 快递收派这类与出行无关的：归其他费用，不要求行程闭环
+        purpose = PURPOSE_OTHER
     elif kind == KIND_TAXI and location == home:
         purpose = PURPOSE_TAXI_CITY
-    elif kind == KIND_TAXI and location == "城市待核":
-        purpose = PURPOSE_TRIP
     else:
         purpose = PURPOSE_TRIP
 
@@ -378,6 +403,10 @@ def cluster_trips(records: list[Record], cfg: dict) -> list[TripCluster]:
     clusters: list[TripCluster] = []
     index = 0
     for city in sorted(by_city):
+        # 住宿不能单独撑起一个「行程」：某城市只有住宿票时，那趟行程的依据根本不存在，
+        # 交给 adopt_orphan_by_date 按日期归入真正有交通凭证的行程（2026-10 实测踩过）。
+        if not any(r.kind in TRAFFIC_KINDS for r in by_city[city]):
+            continue
         items = sorted(by_city[city], key=lambda r: (_parse_date(r.travel_date) or date.max, r.invoice_number))
         current: list[Record] = []
         for record in items:
@@ -404,6 +433,8 @@ def _trip_city(record: Record, home: str) -> str:
     location 可能是三种形态：单个城市（杭州 / 上海）、站点对（杭州西-温州南）、
     航段（深圳-杭州）。后两种都要拆开取"第一个不是出发地的城市"。
     """
+    if record.trip_city:
+        return record.trip_city
     if record.kind in (KIND_RAIL, KIND_RAIL_REFUND):
         return _rail_trip_city(record.location, home)
     parts = [p.strip() for p in (record.location or "").split("-") if p.strip()]
@@ -461,6 +492,127 @@ def apply_trips(records: list[Record], clusters: list[TripCluster], cfg: dict) -
         else:
             if R_TRIP_NO_HOME not in record.reasons:
                 record.reasons.append(R_TRIP_NO_HOME)
+
+
+TRAFFIC_KINDS = (KIND_TAXI, KIND_RAIL, KIND_RAIL_REFUND, KIND_FLIGHT)
+
+
+def pair_round_trip_flights(records: list[Record], cfg: dict, gap_days: int = 4) -> int:
+    """把「杭州->A」和「B->杭州」两张机票配成一趟往返。
+
+    机票票面没有乘车日期，只有开票日；这两张是同一天开的，本来就是一趟
+    （2026-10 实测：杭州-成都 + 重庆-杭州 各算一个行程，把住宿和附加费都拆散了）。
+    配对后统一用去程目的地做行程城市，返回配对成功的对数。
+    """
+    home = (cfg.get("classify") or {}).get("homeCity", "杭州")
+    outbound, inbound = [], []
+    for record in records:
+        if record.kind != KIND_FLIGHT or record.purpose != PURPOSE_TRIP or record.trip_city:
+            continue
+        parts = [p for p in (record.location or "").split("-") if p]
+        if len(parts) != 2:
+            continue
+        if parts[0] == home and parts[1] != home:
+            outbound.append((record, parts[1]))
+        elif parts[1] == home and parts[0] != home:
+            inbound.append((record, parts[0]))
+
+    used: set[str] = set()
+    pairs = 0
+    for record, dest in outbound:
+        base = _parse_date(record.travel_date)
+        best = None
+        for other, _origin in inbound:
+            if other.invoice_number in used:
+                continue
+            when = _parse_date(other.travel_date)
+            if not (base and when):
+                continue
+            gap = abs((when - base).days)
+            if gap <= gap_days and (best is None or gap < best[0]):
+                best = (gap, other)
+        if best is None:
+            continue
+        other = best[1]
+        used.add(other.invoice_number)
+        other.trip_city = dest
+        record.trip_city = dest
+        other.inferred_from = f"往返机票配对：与 {record.location} 同批（相差 {best[0]} 天）"
+        record.inferred_from = f"往返机票配对：与 {other.location} 同批"
+        pairs += 1
+    return pairs
+
+
+def propagate_batch_trips(records: list[Record], cfg: dict, log=None) -> int:
+    """同一销售方、同一开票日的一批发票，行程跟着这一批走。
+
+    携程的机票和它的「代订附加」是同一天同一家开的；机票能定行程，附加费不能，
+    但它们必然是同一趟的（2026-10 实测：270.00 / 82.00 两张附加费）。
+    只在一批里**只有一个**已确定行程时才生效，避免乱推。
+    """
+    batches: dict[tuple[str, str], list[Record]] = {}
+    for record in records:
+        if record.purpose != PURPOSE_TRIP:
+            continue
+        if not record.seller or record.seller == "销售方待核":
+            continue
+        if not record.issue_date or record.issue_date == "日期待核":
+            continue
+        batches.setdefault((record.seller, record.issue_date), []).append(record)
+
+    moved = 0
+    for (seller, issue), items in batches.items():
+        trips = {r.trip_folder for r in items if r.trip_folder}
+        if len(trips) != 1:
+            continue
+        trip = trips.pop()
+        for record in items:
+            if record.trip_folder:
+                continue
+            record.trip_folder = trip
+            record.reasons = [x for x in record.reasons if x not in (R_TRIP_OPEN, R_TRIP_NO_HOME)]
+            record.inferred_from = f"同批推断：{seller} {issue} 同一批发票里已有票确定行程"
+            moved += 1
+            if log:
+                log(f"[推断] {record.invoice_number} {record.amount:.2f} 元 -> {trip}（同批：{seller} {issue}）")
+    return moved
+
+
+def adopt_orphan_by_date(records: list[Record], clusters: list[TripCluster], cfg: dict,
+                         gap_days: int = 7, log=None) -> int:
+    """住宿票若没有任何行程归属，且窗口内只有**唯一一个**候选行程，就归入它。
+
+    住宿票必然发生在某次出行中，但票面既没有城市也没有入住日期。
+    只有当候选行程唯一时才动手（多个候选 = 猜，宁可留着）。
+    """
+    orphans = [
+        r for r in records
+        if r.purpose == PURPOSE_TRIP and r.kind == KIND_HOTEL and not r.trip_folder
+    ]
+    moved = 0
+    for record in orphans:
+        when = _parse_date(record.issue_date)
+        if not when:
+            continue
+        candidates = []
+        for cluster in clusters:
+            start, end = _parse_date(cluster.start), _parse_date(cluster.end)
+            if not (start and end):
+                continue
+            gap = min(abs((when - start).days), abs((when - end).days))
+            if gap <= gap_days:
+                candidates.append((gap, cluster))
+        if len(candidates) != 1:
+            continue
+        gap, cluster = candidates[0]
+        record.trip_folder = cluster.folder
+        record.reasons = [x for x in record.reasons if x not in (R_TRIP_OPEN, R_TRIP_NO_HOME)]
+        record.inferred_from = (f"日期邻近推断：唯一候选行程 {cluster.folder}"
+                                f"（开票日与该行程相差 {gap} 天）")
+        moved += 1
+        if log:
+            log(f"[推断] {record.invoice_number} {record.amount:.2f} 元 -> {cluster.folder}（住宿按日期归入唯一候选行程）")
+    return moved
 
 
 def finalize(records: list[Record], cfg: dict) -> None:

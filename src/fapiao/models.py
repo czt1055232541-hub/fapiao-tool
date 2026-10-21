@@ -101,6 +101,8 @@ class Record:
     seller: str = ""
     status: str = ""
     reasons: list[str] = field(default_factory=list)
+    inferred_from: str = ""   # 行程是按什么证据推断来的（人工复核要看这个）
+    trip_city: str = ""       # 往返机票配对后统一的城市（覆盖 location 推导）
     category: str = ""
     included: bool = False
     archived_invoice: str = ""

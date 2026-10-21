@@ -18,6 +18,7 @@ PURPOSE_DIRS = {
     classify.PURPOSE_TRIP: "01_差旅费",
     classify.PURPOSE_ENTERTAIN: "02_招待费",
     classify.PURPOSE_TAXI_CITY: "03_杭州市内打车票",
+    classify.PURPOSE_OTHER: "04_其他费用",
 }
 
 QUARANTINE = "99_存疑待人工审计"

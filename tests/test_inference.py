@@ -1,0 +1,154 @@
+"""行程归属推断（2026-10 新增）：证据照进来，别让票白进存疑。"""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))
+
+from fapiao import classify, extract  # noqa: E402
+from fapiao.models import Meta, Record  # noqa: E402
+
+CFG = {"classify": {"homeCity": "杭州", "tripGapDays": 4}}
+
+
+def rec(**kw) -> Record:
+    base = dict(buyer="浙江大学", purpose=classify.PURPOSE_TRIP, amount=1.0,
+                invoice_number="X", issue_date="2026-10-08", seller="某公司")
+    base.update(kw)
+    return Record(**base)
+
+
+class TestSellerAddressCity(unittest.TestCase):
+    def test_extracts_from_seller_address_only(self):
+        text = "销售方地址:四川省遂宁市安居区国道318线;    电话:13900000000;"
+        self.assertEqual(extract.seller_address_city(text), "遂宁")
+
+    def test_does_not_scan_whole_text(self):
+        """全文扫会被开户行名字带偏（实测：成都双楠支行 -> 成都）。"""
+        text = "销方开户银行:中国农业银行股份有限公司成都双楠支行;    银行账号:22320601040017798"
+        self.assertEqual(extract.seller_address_city(text), "")
+
+    def test_missing_field(self):
+        self.assertEqual(extract.seller_address_city("随便一段没有地址的文字"), "")
+
+
+class TestDocumentOnly(unittest.TestCase):
+    def test_shipment_manifest_is_not_an_invoice(self):
+        text = "1-1 顺丰电子发票 — 运单明细 # 运单号码 寄件时间 1 SF0210708664075 2026/09/21"
+        self.assertTrue(extract.looks_like_document_only(text, "顺丰运单明细.pdf"))
+
+    def test_real_invoice_is_not_flagged(self):
+        text = "电子发票（普通发票） 项目名称 *生产生活服务*收派服务 价税合计（大写）（小写）"
+        self.assertFalse(extract.looks_like_document_only(text, "电子发票.pdf"))
+
+    def test_manifest_without_marker_is_not_flagged(self):
+        self.assertFalse(extract.looks_like_document_only("普通的一段文字", "a.pdf"))
+
+
+class TestNonTravel(unittest.TestCase):
+    def test_technical_service_is_non_travel(self):
+        self.assertTrue(classify._is_non_travel(Meta(item_names=["*生产生活服务*技术服务"])))
+
+    def test_express_delivery_is_non_travel(self):
+        self.assertTrue(classify._is_non_travel(Meta(item_names=["*生产生活服务*收派服务"])))
+
+    def test_ctrip_ancillary_is_travel(self):
+        """代订附加跟着机票走，不能归成其他费用，否则行程推断认领不到它。"""
+        self.assertFalse(classify._is_non_travel(Meta(item_names=["*生产生活服务*代订附加"])))
+
+
+class TestRoundTripFlights(unittest.TestCase):
+    def test_outbound_and_return_merge_into_one_trip(self):
+        out = rec(kind=classify.KIND_FLIGHT, location="杭州-成都", trip_city="",
+                  invoice_number="A", travel_date="2026-10-08", seller="携程")
+        back = rec(kind=classify.KIND_FLIGHT, location="重庆-杭州", trip_city="",
+                   invoice_number="B", travel_date="2026-10-08", seller="携程")
+        pairs = classify.pair_round_trip_flights([out, back], CFG)
+        self.assertEqual(pairs, 1)
+        self.assertEqual(out.trip_city, "成都")
+        self.assertEqual(back.trip_city, "成都")
+        self.assertIn("往返机票配对", out.inferred_from)
+
+    def test_far_apart_dates_do_not_pair(self):
+        out = rec(kind=classify.KIND_FLIGHT, location="杭州-北京", invoice_number="A",
+                  travel_date="2026-10-01")
+        back = rec(kind=classify.KIND_FLIGHT, location="上海-杭州", invoice_number="B",
+                   travel_date="2026-10-20")
+        self.assertEqual(classify.pair_round_trip_flights([out, back], CFG), 0)
+        self.assertEqual(out.trip_city, "")
+
+
+class TestBatchPropagation(unittest.TestCase):
+    def test_same_seller_same_day_follows_the_trip(self):
+        flight = rec(kind=classify.KIND_FLIGHT, invoice_number="A", seller="上海华程西南国际旅行社有限公司",
+                     issue_date="2026-10-08", trip_folder="01_成都差旅")
+        extra = rec(kind=classify.KIND_OTHER, invoice_number="B", seller="上海华程西南国际旅行社有限公司",
+                    issue_date="2026-10-08", reasons=[classify.R_TRIP_OPEN])
+        moved = classify.propagate_batch_trips([flight, extra], CFG)
+        self.assertEqual(moved, 1)
+        self.assertEqual(extra.trip_folder, "01_成都差旅")
+        self.assertEqual(extra.reasons, [], "推断成功后要把它从存疑原因里摘掉")
+
+    def test_ambiguous_batch_is_left_alone(self):
+        a = rec(kind=classify.KIND_FLIGHT, invoice_number="A", seller="S", issue_date="2026-10-08",
+                trip_folder="01_甲")
+        b = rec(kind=classify.KIND_FLIGHT, invoice_number="B", seller="S", issue_date="2026-10-08",
+                trip_folder="02_乙")
+        c = rec(kind=classify.KIND_OTHER, invoice_number="C", seller="S", issue_date="2026-10-08")
+        self.assertEqual(classify.propagate_batch_trips([a, b, c], CFG), 0)
+        self.assertEqual(c.trip_folder, "", "一批对应多个行程时不能猜")
+
+    def test_non_travel_purpose_is_out_of_scope(self):
+        flight = rec(kind=classify.KIND_FLIGHT, invoice_number="A", seller="S", issue_date="2026-10-08",
+                     trip_folder="01_甲")
+        other = rec(kind=classify.KIND_OTHER, purpose=classify.PURPOSE_OTHER,
+                    invoice_number="B", seller="S", issue_date="2026-10-08")
+        self.assertEqual(classify.propagate_batch_trips([flight, other], CFG), 0)
+
+
+class TestAdoptOrphanHotel(unittest.TestCase):
+    def _cluster(self, index=1, city="成都", start="2026-10-08", end="2026-10-08", route="杭州-成都-杭州"):
+        return classify.TripCluster(index=index, city=city, start=start, end=end, route=route,
+                                    members=["FLIGHT"])
+
+    def test_single_candidate_absorbs_the_hotel(self):
+        hotel = rec(kind=classify.KIND_HOTEL, invoice_number="H", issue_date="2026-10-06",
+                    location="遂宁", reasons=[classify.R_TRIP_OPEN])
+        moved = classify.adopt_orphan_by_date([hotel], [self._cluster()], CFG)
+        self.assertEqual(moved, 1)
+        self.assertEqual(hotel.trip_folder, "01_2026-10-08_至_2026-10-08_成都差旅_杭州-成都-杭州")
+        self.assertIn("日期邻近推断", hotel.inferred_from)
+        self.assertEqual(hotel.reasons, [])
+
+    def test_multiple_candidates_is_not_guessed(self):
+        hotel = rec(kind=classify.KIND_HOTEL, invoice_number="H", issue_date="2026-10-08",
+                    location="遂宁", reasons=[classify.R_TRIP_OPEN])
+        clusters = [self._cluster(1), self._cluster(2, city="重庆")]
+        self.assertEqual(classify.adopt_orphan_by_date([hotel], clusters, CFG), 0)
+        self.assertEqual(hotel.trip_folder, "")
+
+    def test_too_far_in_time_is_not_adopted(self):
+        hotel = rec(kind=classify.KIND_HOTEL, invoice_number="H", issue_date="2026-12-01",
+                    location="遂宁", reasons=[classify.R_TRIP_OPEN])
+        self.assertEqual(classify.adopt_orphan_by_date([hotel], [self._cluster()], CFG), 0)
+
+
+class TestHotelCannotMakeItsOwnTrip(unittest.TestCase):
+    def test_city_with_only_hotel_makes_no_cluster(self):
+        hotel = rec(kind=classify.KIND_HOTEL, invoice_number="H", location="遂宁",
+                    travel_date="2026-10-06")
+        self.assertEqual(classify.cluster_trips([hotel], CFG), [])
+
+    def test_city_with_traffic_still_clusters(self):
+        flight = rec(kind=classify.KIND_FLIGHT, invoice_number="F", location="杭州-成都",
+                     travel_date="2026-10-08", trip_city="成都")
+        self.assertEqual(len(classify.cluster_trips([flight], CFG)), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
