@@ -229,8 +229,9 @@ def run(
         run_dir, (cfg.get("report") or {}).get("excelName") or "00_发票审计明细及汇总.xlsx",
         all_records, summary, merged_folder,
     )
-    if is_monthly and archive_cfg.get("consolidateOnMonthlyRun", True):
-        archive.consolidate_same_window(root, run_dir, window, all_records, log=log)
+    # 判据是"票的集合"，每次运行都做（不只是执行日）：偶发补档的窄窗口本来就跟月度窗口对不上。
+    if archive_cfg.get("consolidateRedundant", archive_cfg.get("consolidateOnMonthlyRun", True)):
+        archive.consolidate_redundant(root, run_dir, all_records, log=log)
     verify_run(run_dir, summary, all_records)
     log(f"[完成] {run_dir}")
     log(f"[完成] 计入 {summary['included_invoice_count']} 张 / {summary['included_total']:.2f} 元；"

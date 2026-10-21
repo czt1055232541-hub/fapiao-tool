@@ -13,7 +13,7 @@
     "folderTemplate": "{runDate}月度发票归集({total:.2f})",
     "midMonthTemplate": "{runDate}月度发票归集",
     "exclusionsFile": "",
-    "consolidateOnMonthlyRun": true,
+    "consolidateRedundant": true,
     "keepXml": true,
     "keepOfd": false,
     "includeSinceYear": null

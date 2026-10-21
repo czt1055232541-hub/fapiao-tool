@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import date
 from pathlib import Path
@@ -108,16 +109,37 @@ def place_orphan_itinerary(run_dir: Path, path: str, filename: str) -> str:
     return str(out.relative_to(run_dir))
 
 
-def consolidate_same_window(
-    root: Path, run_dir: Path, window: tuple[date, date], records: list[Record], log=print
-) -> list[str]:
-    """执行日合并：把同一采集窗口的旧目录并掉（那是月中提前生成的）。
+# 工具自己会生成的顶层条目形态；出现别的，说明有人手工加工过
+_GENERATED_TOP = re.compile(r"^(00_.+|[0-9]{2}_.+明细|99_.+|_原始数据)$")
 
-    安全闸门：**只有当旧目录里的每一张发票都能在新目录里按发票号码找到时才删**；
-    少一张就保留并报告，绝不拿"反正差不多"去赌。返回被删掉的目录名。
+
+def _has_handmade_content(path: Path) -> str:
+    """返回第一个"不像工具生成"的顶层条目名；没有就返回空串。"""
+    try:
+        entries = list(path.iterdir())
+    except OSError:
+        return "目录读不了"
+    for entry in entries:
+        if not _GENERATED_TOP.match(entry.name):
+            return entry.name
+    return ""
+
+
+def consolidate_redundant(
+    root: Path, run_dir: Path, records: list[Record], log=print
+) -> list[str]:
+    """把"票已经全在新目录里"的旧目录并掉。
+
+    判据是**票的集合**，不是采集窗口：
+    偶发补档天然用窄窗口（2026-10-06 那次是 --since 10-06 --before 10-07），
+    跟月度窗口永远不相等，用"窗口相等"当判据这种场景 100% 失效（实测漏了一个目录）。
+
+    三道保险，任何一条命中就不删：
+    1. 旧目录里有工具不会生成的东西 —— 说明手工加工过（例如 03_已至报销单）
+    2. 旧目录已复核 —— 人签过字，不自动清
+    3. 旧目录有票在新目录里找不到 —— 删了就丢票
     """
     have = {r.invoice_number for r in records if r.invoice_number and r.invoice_number != "未识别"}
-    wanted = (window[0].isoformat(), window[1].isoformat())
     removed: list[str] = []
     if not root.is_dir():
         return removed
@@ -132,8 +154,13 @@ def consolidate_same_window(
             payload = json.loads(summary_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        other = payload.get("window") or {}
-        if (other.get("since"), other.get("before")) != wanted:
+
+        handmade = _has_handmade_content(path)
+        if handmade:
+            log(f"[合并] 保留 {path.name}：里面有非工具生成的条目（{handmade}），可能被手工加工过")
+            continue
+        if (payload.get("review") or {}).get("status") == "已复核":
+            log(f"[合并] 保留 {path.name}：已复核签字，不自动清理")
             continue
 
         numbers: set[str] = set()
@@ -154,7 +181,7 @@ def consolidate_same_window(
             continue
         shutil.rmtree(path)
         removed.append(path.name)
-        log(f"[合并] 已并入并删除重复的月中目录：{path.name}（{len(numbers)} 张发票全部已在新目录中）")
+        log(f"[合并] 已并入并删除冗余目录：{path.name}（{len(numbers)} 张发票全部已在新目录中）")
     return removed
 
 

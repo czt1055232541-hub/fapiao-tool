@@ -122,6 +122,8 @@ class TestExclusionApplied(unittest.TestCase):
 
 
 class TestConsolidation(unittest.TestCase):
+    """清理冗余目录：判据是**票的集合**，不是采集窗口；另有三道保险。"""
+
     def setUp(self):
         self.tmp = support.make_temp_dir("merge")
         self.root = self.tmp / "归档"
@@ -131,13 +133,15 @@ class TestConsolidation(unittest.TestCase):
     def tearDown(self):
         support.clean_temp_dir(self.tmp)
 
-    def _make_folder(self, name: str, numbers: list[str], window=None):
+    def _make_folder(self, name: str, numbers: list[str], window=None, review=None):
         path = self.root / name
         path.mkdir(parents=True, exist_ok=True)
         since, before = window or self.window
+        payload = {"window": {"since": since.isoformat(), "before": before.isoformat()}}
+        if review:
+            payload["review"] = {"status": review}
         (path / "00_审计摘要.json").write_text(
-            json.dumps({"window": {"since": since.isoformat(), "before": before.isoformat()}},
-                       ensure_ascii=False), encoding="utf-8")
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         (path / "00_审计明细.json").write_text(
             json.dumps([{"invoice_number": n} for n in numbers], ensure_ascii=False), encoding="utf-8")
         return path
@@ -147,41 +151,73 @@ class TestConsolidation(unittest.TestCase):
 
         return Record(invoice_number=number, amount=1.0)
 
+    def _consolidate(self, new, numbers):
+        return archive.consolidate_redundant(
+            self.root, new, [self._record(n) for n in numbers], log=lambda *_a, **_k: None)
+
     def test_subset_is_merged_and_removed(self):
         old = self._make_folder("20261006月度发票归集", ["A", "B"])
         new = self._make_folder("20261020月度发票归集(2.00)", ["A", "B", "C"])
-        removed = archive.consolidate_same_window(
-            self.root, new, self.window, [self._record("A"), self._record("B"), self._record("C")],
-            log=lambda *_a, **_k: None)
+        removed = self._consolidate(new, ["A", "B", "C"])
         self.assertEqual(removed, ["20261006月度发票归集"])
         self.assertFalse(old.exists())
         self.assertTrue(new.exists())
+
+    def test_narrow_window_folder_is_still_merged(self):
+        """偶发补档用窄窗口 —— 窗口不同也必须能并掉（10-06 漏掉的正是这一条）。"""
+        old = self._make_folder("20261006月度发票归集", ["A"],
+                                window=(date(2026, 10, 6), date(2026, 10, 7)))
+        new = self._make_folder("20261020月度发票归集(2.00)", ["A", "B"])
+        removed = self._consolidate(new, ["A", "B"])
+        self.assertEqual(removed, ["20261006月度发票归集"])
+        self.assertFalse(old.exists())
 
     def test_missing_invoice_blocks_removal(self):
         """旧目录里有新目录没有的发票 -> 保留，绝不拿"差不多"去赌。"""
         old = self._make_folder("20261006月度发票归集", ["A", "B", "Z"])
         new = self._make_folder("20261020月度发票归集(2.00)", ["A", "B"])
-        removed = archive.consolidate_same_window(
-            self.root, new, self.window, [self._record("A"), self._record("B")],
-            log=lambda *_a, **_k: None)
+        removed = self._consolidate(new, ["A", "B"])
         self.assertEqual(removed, [])
         self.assertTrue(old.exists())
 
-    def test_different_window_is_left_alone(self):
-        old = self._make_folder("20260920月度发票归集(9.00)", ["A"],
-                                window=(date(2026, 8, 21), date(2026, 9, 21)))
+    def test_handmade_content_blocks_removal(self):
+        """目录里有工具不会生成的东西（例如 03_已至报销单）就不删。"""
+        old = self._make_folder("20260920月度发票归集(9.00)", ["A"])
+        (old / "03_已至报销单").mkdir()
         new = self._make_folder("20261020月度发票归集(2.00)", ["A"])
-        removed = archive.consolidate_same_window(
-            self.root, new, self.window, [self._record("A")], log=lambda *_a, **_k: None)
+        removed = self._consolidate(new, ["A"])
         self.assertEqual(removed, [])
         self.assertTrue(old.exists())
+
+    def test_reviewed_folder_blocks_removal(self):
+        """人签过字的目录不自动清。"""
+        old = self._make_folder("20261006月度发票归集", ["A"], review="已复核")
+        new = self._make_folder("20261020月度发票归集(2.00)", ["A"])
+        removed = self._consolidate(new, ["A"])
+        self.assertEqual(removed, [])
+        self.assertTrue(old.exists())
+
+    def test_generated_entries_are_not_flagged_as_handmade(self):
+        """工具自己生成的一堆条目（01_浙江大学明细 之类）不能被当成手工加工。"""
+        folder = self._make_folder("20260920月度发票归集(9.00)", ["A"])
+        # 顶层只会出现这些形态：抬头明细目录、00_*、99_*、_原始数据
+        # （03_杭州市内打车票 之类是明细目录**里面**的子目录，不参与顶层判定）
+        for name in ("01_浙江大学明细", "02_芯智辰光明细",
+                     "00_汇总发票", "99_存疑待人工审计", "_原始数据"):
+            (folder / name).mkdir()
+        self.assertEqual(archive._has_handmade_content(folder), "")
+
+    def test_handmade_entries_are_detected(self):
+        folder = self._make_folder("20260920月度发票归集(9.00)", ["A"])
+        (folder / "01_浙江大学明细").mkdir()
+        (folder / "03_已至报销单").mkdir()
+        self.assertEqual(archive._has_handmade_content(folder), "03_已至报销单")
 
     def test_folder_without_summary_is_ignored(self):
         stranger = self.root / "手工放的文件夹"
         stranger.mkdir()
         new = self._make_folder("20261020月度发票归集(2.00)", ["A"])
-        removed = archive.consolidate_same_window(
-            self.root, new, self.window, [self._record("A")], log=lambda *_a, **_k: None)
+        removed = self._consolidate(new, ["A"])
         self.assertEqual(removed, [])
         self.assertTrue(stranger.exists())
 

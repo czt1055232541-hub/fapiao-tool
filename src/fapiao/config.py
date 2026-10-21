@@ -28,7 +28,7 @@ DEFAULTS: dict = {
         "folderTemplate": "{runDate}月度发票归集({total:.2f})",
         "midMonthTemplate": "{runDate}月度发票归集",
         "exclusionsFile": "",
-        "consolidateOnMonthlyRun": True,
+        "consolidateRedundant": True,
         "keepXml": True,
         "keepOfd": False,
         "includeSinceYear": None,
