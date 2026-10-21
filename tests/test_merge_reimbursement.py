@@ -24,7 +24,7 @@ def _pages(path: Path) -> int:
 class TestCollect(unittest.TestCase):
     def setUp(self):
         self.tmp = support.make_temp_dir("merge")
-        self.folder = self.tmp / "预约号-12340000差旅报销"
+        self.folder = self.tmp / "预约号-12340001差旅报销"
         self.folder.mkdir()
         (self.folder / "12340001 _5226.25.pdf").write_bytes(b"form")
         for name in ("001_a_发票.pdf", "001_a_行程单.pdf", "002_b_发票.pdf",
@@ -60,22 +60,22 @@ class TestCollect(unittest.TestCase):
 class TestBundledName(unittest.TestCase):
     def test_uses_form_stem_and_drops_whitespace(self):
         form = Path("12340001 _5226.25.pdf")
-        name = mr.bundled_name(Path("预约号-12340000差旅报销"), form)
+        name = mr.bundled_name(Path("预约号-12340001差旅报销"), form)
         self.assertEqual(name, "12340001_5226.25_发票与行程单.pdf")
 
     def test_falls_back_to_folder_name(self):
-        name = mr.bundled_name(Path("预约号-12340000差旅报销"), None)
-        self.assertIn("预约号-12340000差旅报销", name)
+        name = mr.bundled_name(Path("预约号-12340001差旅报销"), None)
+        self.assertIn("预约号-12340001差旅报销", name)
 
 
 class TestMergeEndToEnd(unittest.TestCase):
     def setUp(self):
         self.tmp = support.make_temp_dir("mergepdf")
         self.base = self.tmp / "已至报销单"
-        self.folder = self.base / "预约号-12340000差旅报销"
+        self.folder = self.base / "预约号-12340001差旅报销"
         self.folder.mkdir(parents=True)
         # 预约单本身（不该被合并）；内容用几页 PDF 也能验证它确实没进来
-        fixtures.make_pdf(self.folder / "12340000_100.00.pdf", fixtures.VAT_TAXI_INVOICE_TEXT)
+        fixtures.make_pdf(self.folder / "12340001_100.00.pdf", fixtures.VAT_TAXI_INVOICE_TEXT)
         fixtures.make_pdf(self.folder / "001_a_发票.pdf", fixtures.VAT_TAXI_INVOICE_TEXT)
         fixtures.make_pdf(self.folder / "001_a_行程单.pdf", fixtures.ITINERARY_TEXT)
         sub = self.folder / "17_深圳差旅"
