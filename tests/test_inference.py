@@ -25,7 +25,7 @@ def rec(**kw) -> Record:
 
 class TestSellerAddressCity(unittest.TestCase):
     def test_extracts_from_seller_address_only(self):
-        text = "销售方地址:四川省遂宁市安居区国道318线;    电话:13900000000;"
+        text = "销售方地址:四川省遂宁市安居区某某路1号;    电话:13900000000;"
         self.assertEqual(extract.seller_address_city(text), "遂宁")
 
     def test_does_not_scan_whole_text(self):

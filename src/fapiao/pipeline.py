@@ -216,6 +216,13 @@ def run(
         merged=merged, include_since_year=archive_cfg.get("includeSinceYear"),
         wechat_info=wechat_info,
     )
+    # 复核闸门（2026-10 定的口径）：自动跑出来的归档只是"候选结果"，
+    # 必须过一遍会话复核才算最终结果。状态写在摘要里，任何人打开就知道能不能用。
+    summary["review"] = {
+        "status": "待复核",
+        "rule": "计划任务自动产出的归档必须经会话复核后才算最终交付；未复核前不得据此报销。",
+        "command": f'python scripts/review_run.py show "{run_dir.name}"',
+    }
     report.write_summary(run_dir, (cfg.get("report") or {}).get("summaryName") or "00_审计摘要.json", summary)
     report.write_records(run_dir, all_records)
     report.write_excel(

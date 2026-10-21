@@ -29,6 +29,21 @@
 python scripts/preview.py --run-date 2026-10-20    # 会逐条打印微信入站目录的"跳过留痕"
 ```
 
+## 跑完之后：复核（必须做）
+
+自动跑出来的归档**不能直接用**。每次运行结束后：
+
+```bash
+python scripts/review_run.py list                  # 看哪些还没复核
+python scripts/review_run.py show 20261020         # 复核清单（存疑/推断/跳过/金额/差异）
+python scripts/review_run.py approve 20261020 --note "核对结论"
+```
+
+复核清单五段：存疑项、**推断项（机器推的，重点看）**、跳过项、金额三处一致性、与上一期差异。
+确认没问题再 `approve`，摘要里的 `review.status` 会从 `待复核` 变成 `已复核`。
+
+**未复核的归档不得据此报销。**
+
 ## 命令一览
 
 ```bash

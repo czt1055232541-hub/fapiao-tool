@@ -23,6 +23,7 @@ CHECKS = [
     ("单元测试", [PY, "-m", "unittest", "discover", "-s", "tests", "-t", ".", "-v"], {}, lambda: True),
     ("CLI 帮助", [PY, "scripts/run_monthly.py", "--help"], {}, lambda: True),
     ("合并工具帮助", [PY, "scripts/merge_reimbursement.py", "--help"], {}, lambda: True),
+    ("复核工具帮助", [PY, "scripts/review_run.py", "--help"], {}, lambda: True),
     ("控制台编码闸门", [PY, "tests/console_encoding_probe.py"], {"PYTHONIOENCODING": "gbk"}, lambda: True),
     ("隐私闸门", [PY, "scripts/check_privacy.py"], {}, lambda: True),
     ("计划任务自检", ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/check_task.ps1"], {},
