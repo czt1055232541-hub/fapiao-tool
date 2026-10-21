@@ -53,7 +53,7 @@ VAT_TAXI_INVOICE_TEXT = """电子发票（普通发票）
 *交通运输服务*客运服务费
 21.58
 3%
-28147879666960508042
+27475085742512508042
 91330100TEST0000001
 12100000000000000A
 """
@@ -83,7 +83,7 @@ VAT_RED_INVOICE_TEXT = """电子发票（普通发票）
 *生产生活服务*餐费
 -14.85
 1%
-23957003100053509999
+20959146142392509999
 91330100TEST0000002
 12100000000000000A
 """
@@ -106,7 +106,7 @@ RAIL_INVOICE_TEXT = """国家税务总局
 江
 浙
 开票日期:2026年09月18日
-发票号码:22883035638232649100
+发票号码:22422078901237649100
 杭州东站
 上海南站
 G7542
@@ -131,7 +131,7 @@ Shanghainan
 
 # 铁路退票（负数额度）：用于验证"动车高铁退改签"分支。
 RAIL_REFUND_TEXT = """开票日期:2026年03月13日
-发票号码:24255100406718649222
+发票号码:26661817827445649222
 杭州东站
 上海南站
 G7501
@@ -197,7 +197,7 @@ AMAP ITINERARY
 
 TAXI_INVOICE_XML = """<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <EInvoice>
-  <Header><EIid>28147879666960508042</EIid><EInvoiceTag>SWEI4400</EInvoiceTag><Version>0.32</Version></Header>
+  <Header><EIid>27475085742512508042</EIid><EInvoiceTag>SWEI4400</EInvoiceTag><Version>0.32</Version></Header>
   <EInvoiceData>
     <SellerInformation>
       <SellerIdNum>91330100TEST0000001</SellerIdNum>
@@ -221,7 +221,7 @@ TAXI_INVOICE_XML = """<?xml version="1.0" encoding="utf-8" standalone="yes"?>
     </IssuItemInformation>
   </EInvoiceData>
   <TaxSupervisionInfo>
-    <InvoiceNumber>28147879666960508042</InvoiceNumber>
+    <InvoiceNumber>27475085742512508042</InvoiceNumber>
     <IssueTime>2026-09-18</IssueTime>
   </TaxSupervisionInfo>
 </EInvoice>
@@ -229,7 +229,7 @@ TAXI_INVOICE_XML = """<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 
 HOTEL_INVOICE_XML_ONLY = """<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <EInvoice>
-  <Header><EIid>27823854920028326999</EIid></Header>
+  <Header><EIid>24932290327351326999</EIid></Header>
   <EInvoiceData>
     <SellerInformation>
       <SellerIdNum>91330100TEST0000003</SellerIdNum>
@@ -253,7 +253,7 @@ HOTEL_INVOICE_XML_ONLY = """<?xml version="1.0" encoding="utf-8" standalone="yes
     </IssuItemInformation>
   </EInvoiceData>
   <TaxSupervisionInfo>
-    <InvoiceNumber>27823854920028326999</InvoiceNumber>
+    <InvoiceNumber>24932290327351326999</InvoiceNumber>
     <IssueTime>2026-07-18</IssueTime>
   </TaxSupervisionInfo>
 </EInvoice>

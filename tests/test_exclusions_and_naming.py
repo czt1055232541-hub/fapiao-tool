@@ -29,12 +29,12 @@ class TestExclusionList(unittest.TestCase):
         self.assertEqual(exclusions.load(self.path), {})
 
     def test_add_load_remove_roundtrip(self):
-        exclusions.add("25495606207001213771", "交由他人报销", "老板 2026-10-06", self.path)
+        exclusions.add("22988063760837213771", "交由他人报销", "老板 2026-10-06", self.path)
         table = exclusions.load(self.path)
-        self.assertIn("25495606207001213771", table)
-        self.assertEqual(table["25495606207001213771"]["reason"], "交由他人报销")
+        self.assertIn("22988063760837213771", table)
+        self.assertEqual(table["22988063760837213771"]["reason"], "交由他人报销")
 
-        self.assertTrue(exclusions.remove("25495606207001213771", self.path))
+        self.assertTrue(exclusions.remove("22988063760837213771", self.path))
         self.assertEqual(exclusions.load(self.path), {})
         self.assertFalse(exclusions.remove("不存在", self.path))
 
@@ -94,7 +94,7 @@ class TestExclusionApplied(unittest.TestCase):
 
     def test_excluded_invoice_dropped_and_traced(self):
         # 邮件 1 的发票（杭州打车 22.23 元），排除后计入只剩 79.00
-        exclusions.add("28147879666960508042", "交由他人报销", "测试", self.excl)
+        exclusions.add("27475085742512508042", "交由他人报销", "测试", self.excl)
         result = pipeline.run(self.cfg, RUN_DATE, replay_dir=self.staging,
                               log=lambda *_a, **_k: None)
         summary = result.summary
@@ -107,12 +107,12 @@ class TestExclusionApplied(unittest.TestCase):
         traced = summary["skipped"]["excludedByNumber"]
         self.assertEqual(len(traced), 2)
         for entry in traced:
-            self.assertEqual(entry["invoice_number"], "28147879666960508042")
+            self.assertEqual(entry["invoice_number"], "27475085742512508042")
             self.assertEqual(entry["reason"], "交由他人报销")
             self.assertTrue(entry["source"], "必须留下源路径，便于回溯")
 
         numbers = {r.invoice_number for r in result.records}
-        self.assertNotIn("28147879666960508042", numbers)
+        self.assertNotIn("27475085742512508042", numbers)
 
     def test_no_exclusion_file_changes_nothing(self):
         result = pipeline.run(self.cfg, RUN_DATE, replay_dir=self.staging,

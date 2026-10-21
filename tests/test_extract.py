@@ -15,7 +15,7 @@ from tests import fixtures, support  # noqa: E402
 class TestPdfInvoice(unittest.TestCase):
     def test_vat_taxi_invoice(self):
         meta = extract.parse_pdf_invoice(fixtures.VAT_TAXI_INVOICE_TEXT)
-        self.assertEqual(meta.invoice_number, "28147879666960508042")
+        self.assertEqual(meta.invoice_number, "27475085742512508042")
         self.assertEqual(meta.issue_date, "2026-09-18")
         self.assertEqual(meta.total, 22.23)
         self.assertEqual(meta.buyer_tax_id, fixtures.BUYER_TAX_ID)
@@ -30,7 +30,7 @@ class TestPdfInvoice(unittest.TestCase):
 
     def test_rail_invoice_uses_travel_date(self):
         meta = extract.parse_pdf_invoice(fixtures.RAIL_INVOICE_TEXT)
-        self.assertEqual(meta.invoice_number, "22883035638232649100")
+        self.assertEqual(meta.invoice_number, "22422078901237649100")
         self.assertEqual(meta.issue_date, "2026-09-18")
         self.assertEqual(meta.travel_date, "2026-07-18")
         self.assertEqual(meta.total, 79.00)
@@ -65,7 +65,7 @@ class TestXmlInvoice(unittest.TestCase):
     def test_parse(self):
         meta = extract.parse_xml_invoice(fixtures.TAXI_INVOICE_XML)
         self.assertIsNotNone(meta)
-        self.assertEqual(meta.invoice_number, "28147879666960508042")
+        self.assertEqual(meta.invoice_number, "27475085742512508042")
         self.assertEqual(meta.issue_date, "2026-09-18")
         self.assertEqual(meta.total, 22.23)
         self.assertEqual(meta.buyer_name, fixtures.BUYER_NAME)
@@ -90,7 +90,7 @@ class TestReadPdfText(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertIn(extractor, {"pymupdf", "pypdf"})
         meta = extract.parse_pdf_invoice(text)
-        self.assertEqual(meta.invoice_number, "28147879666960508042")
+        self.assertEqual(meta.invoice_number, "27475085742512508042")
         self.assertEqual(meta.total, 22.23)
 
     def test_unreadable_file_reports_error(self):

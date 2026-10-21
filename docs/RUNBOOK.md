@@ -110,7 +110,7 @@ python scripts/merge_reimbursement.py "<…\03_已至报销单>" --each-subfolde
 ## 某张票不该计入
 
 ```bash
-python scripts/manage_exclusions.py add 25495606207001213771 --reason "交由他人报销" --note "..."
+python scripts/manage_exclusions.py add 22988063760837213771 --reason "交由他人报销" --note "..."
 ```
 
 用于：作废/开错的票、已交由他人报销的票、月中已经报销过、月末不重复计入的票。

@@ -26,13 +26,13 @@ class TestMoney(unittest.TestCase):
 
 class TestInvoiceNumber(unittest.TestCase):
     def test_twenty_digits(self):
-        text = "发票号码:\n28147879666960508042\n91330100TEST0000001"
-        self.assertEqual(textutil.invoice_number(text), "28147879666960508042")
+        text = "发票号码:\n27475085742512508042\n91330100TEST0000001"
+        self.assertEqual(textutil.invoice_number(text), "27475085742512508042")
 
     def test_ignores_embedded_twenty_in_twenty_five(self):
         # 铁路电子客票号是 25 位，里面嵌着 20 位数字，必须被词边界排除。
-        text = "电子客票号:9004190086071990283402026\n发票号码:22883035638232649100"
-        self.assertEqual(textutil.invoice_number(text), "22883035638232649100")
+        text = "电子客票号:9004190086071990283402026\n发票号码:22422078901237649100"
+        self.assertEqual(textutil.invoice_number(text), "22422078901237649100")
 
     def test_missing(self):
         self.assertEqual(textutil.invoice_number("无"), "")

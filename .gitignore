@@ -25,3 +25,8 @@ config.local.json
 .env
 .env.*
 *.secret
+
+# 本机真实配置与真实排除清单：含本机绝对路径 / 真实发票号码，只留本地
+# 入库的是 config.example.json 与 exclusions.example.json
+config.json
+exclusions.json

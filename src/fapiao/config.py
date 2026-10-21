@@ -62,7 +62,13 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def load_config(path: Path | str | None = None) -> dict:
-    cfg_path = Path(path) if path else DEFAULT_CONFIG_PATH
+    # 显式给路径就用它；否则优先本机 config.json，没有就退回入库的脱敏模板。
+    if path:
+        cfg_path = Path(path)
+    else:
+        cfg_path = DEFAULT_CONFIG_PATH
+        if not cfg_path.is_file():
+            cfg_path = DEFAULT_CONFIG_PATH.with_name("config.example.json")
     if not cfg_path.is_file():
         raise FileNotFoundError(f"配置文件不存在：{cfg_path}")
     raw = json.loads(cfg_path.read_text(encoding="utf-8"))

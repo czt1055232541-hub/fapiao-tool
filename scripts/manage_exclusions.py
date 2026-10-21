@@ -1,8 +1,8 @@
 """管理排除清单（按发票号码）。
 
     python scripts/manage_exclusions.py list
-    python scripts/manage_exclusions.py add 25495606207001213771 --reason "交由他人报销" --note "..."
-    python scripts/manage_exclusions.py remove 25495606207001213771
+    python scripts/manage_exclusions.py add 22988063760837213771 --reason "交由他人报销" --note "..."
+    python scripts/manage_exclusions.py remove 22988063760837213771
 
 排除 = 从归档与统计里剔除；**源文件不删**。每条必须带原因，会落进 00_审计摘要.json。
 """
