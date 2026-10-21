@@ -1,6 +1,6 @@
 """文本、金额、命名的公共工具。
 
-这里的规则全部经过真实样张验证，见 AGENTS.md 环境坑位 2/3。
+这里的规则全部经过真实样张验证，见 docs/环境坑位.md 2/3。
 """
 
 from __future__ import annotations

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -18,13 +19,18 @@ SECRET_PATTERNS = [
     ("疑似密钥", re.compile(r"(?i)\b(api[_-]?key|secret|passwd|password)\s*[:=]\s*['\"][^'\"\s]{8,}['\"]")),
     ("私钥块", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
 ]
-# 真实身份信息不该出现在可提交文件里（测试夹具一律用占位名）。
-PRIVACY_PATTERNS = [
-    ("真实姓名", re.compile("\u9648\u667a\u62d3")),
-    # 必须带词边界：微信消息 id 这类长数字串里会偶然出现 1599 + 7 位数字，
-    # 不加边界会误报（实测 msgid0001 命中过）。
-    ("真实手机号", re.compile(r"(?<!\d)1599\d{7}(?!\d)")),
-]
+# 身份类模式（真实姓名、手机号、税号等）**不入库**——那是使用者自己的信息，
+# 放在 config 同级的 privacy.local.json 里（已 gitignore）：
+#   {"patterns": [{"label": "真实姓名", "regex": "..."}]}
+# 仓库只保留通用的密钥类规则，任何人都能直接用。
+PRIVACY_PATTERNS: list[tuple[str, re.Pattern]] = []
+_LOCAL = ROOT / "privacy.local.json"
+if _LOCAL.is_file():
+    try:
+        for _item in json.loads(_LOCAL.read_text(encoding="utf-8")).get("patterns", []):
+            PRIVACY_PATTERNS.append((_item["label"], re.compile(_item["regex"])))
+    except (OSError, ValueError, KeyError):
+        print("  [提示] privacy.local.json 格式不对，已忽略")
 
 
 def git(*args):

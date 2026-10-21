@@ -26,6 +26,12 @@ config.local.json
 .env.*
 *.secret
 
+# 项目开发过程的文件：仓库只放"别人拉下来就能用"的东西，开发日志不进库
+AGENTS.md
+PROJECT_STATE.md
+docs/GOAL.md
+privacy.local.json
+
 # 本机真实配置与真实排除清单：含本机绝对路径 / 真实发票号码，只留本地
 # 入库的是 config.example.json 与 exclusions.example.json
 config.json

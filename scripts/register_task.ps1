@@ -6,7 +6,7 @@
 #
 # 任务以当前用户身份运行、仅在用户登录时执行（InteractiveToken，不存储密码）。
 #
-# 五条必须记住的坑（全部实测踩过，见 AGENTS.md 环境坑位 12/13/14/15/16）：
+# 五条必须记住的坑（全部实测踩过，见 docs/环境坑位.md 12/13/14/15/16）：
 #   1. 本文件必须存成 UTF-8 **带 BOM**：Windows PowerShell 5.1 无 BOM 时按 ANSI 读脚本，
 #      中文默认值会乱码，报 "Cannot validate argument on parameter 'TaskName'"。
 #   2. New-ScheduledTaskTrigger **没有 -Monthly 参数**。

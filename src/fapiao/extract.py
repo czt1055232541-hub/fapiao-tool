@@ -2,7 +2,7 @@
 
 - XML 是税务/服务商给的权威结构化数据（含购买方税号），字段完整；
 - PDF 版式文字碎片化（标签与值分离、竖排单字成行），只能按全文正则抽取；
-- pypdf 在部分发票 PDF 上会抛异常（见 AGENTS.md 环境坑位 1），因此用 fitz 做主提取器。
+- pypdf 在部分发票 PDF 上会抛异常（见 docs/环境坑位.md 1），因此用 fitz 做主提取器。
 """
 
 from __future__ import annotations

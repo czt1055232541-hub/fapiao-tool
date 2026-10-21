@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -59,6 +60,30 @@ def _deep_merge(base: dict, override: dict) -> dict:
         else:
             out[key] = value
     return out
+
+
+PLACEHOLDER = re.compile(r"^<.*>$")
+
+
+def check_ready(cfg: dict) -> list[str]:
+    """检查配置是不是还停在模板状态。
+
+    新同事克隆下来会拿到 config.example.json，里面全是 <占位符>。必须提醒他填，
+    否则工具会老老实实往一个字面叫 "<归档根目录>" 的文件夹里写——不报错，但全是垃圾。
+    """
+    issues: list[str] = []
+    root = str((cfg.get("archive") or {}).get("root") or "").strip()
+    if not root or PLACEHOLDER.match(root):
+        issues.append("archive.root  —— 归档放哪，例如 D:\\发票归档")
+    credential = str((cfg.get("mail") or {}).get("credentialPath") or "").strip()
+    if not credential or PLACEHOLDER.match(credential):
+        issues.append("mail.credentialPath  —— 邮箱凭据 JSON 的路径（见 README「准备邮箱凭据」）")
+    wechat = cfg.get("wechat") or {}
+    if wechat.get("enabled"):
+        inbound = str(wechat.get("inboundDir") or "").strip()
+        if not inbound or PLACEHOLDER.match(inbound):
+            issues.append("wechat.inboundDir  —— 微信入站目录；不用微信就把 wechat.enabled 改成 false")
+    return issues
 
 
 def load_config(path: Path | str | None = None) -> dict:

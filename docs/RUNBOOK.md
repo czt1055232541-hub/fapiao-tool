@@ -137,10 +137,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_task.ps1
 
 > **为什么脚本里用 COM 而不是 `Register-ScheduledTask`**：本机 `ScheduledTasks` 模块的写入路径
 > 一律返回 `Unspecified error (0x80004005)`，`schtasks.exe /create` 直接被拒绝启动，
-> `New-ScheduledTaskTrigger` 又没有 `-Monthly`。细节与证据见 `AGENTS.md` 环境坑位 13–16。
+> `New-ScheduledTaskTrigger` 又没有 `-Monthly`。细节与证据见 `docs/环境坑位.md` 环境坑位 13–16。
 >
 > 另外：**注册后第一次想验证它真的能跑**，别在 DSH 工具调用里触发后马上返回——
-> 调用结束会清掉该调用期间启动的进程树，任务会跑一半被杀（`AGENTS.md` 环境坑位 17）。
+> 调用结束会清掉该调用期间启动的进程树，任务会跑一半被杀（`docs/环境坑位.md` 环境坑位 17）。
 
 ## 排障
 

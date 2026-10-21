@@ -1,6 +1,6 @@
 """测试临时目录：一律落在仓库内的 data/_test_tmp，且**不能**用 tempfile.mkdtemp。
 
-两个已实测的坑（见 AGENTS.md 环境坑位 9/10）：
+两个已实测的坑（见 docs/环境坑位.md 9/10）：
 1. 系统 Temp 不在 DSH 工作区内，清理阶段会抛 PermissionError。
 2. tempfile.mkdtemp 用 mode=0o700 建目录，在 DSH 沙箱下该目录会变成**只读**
    （实测 nlink=0、写文件 PermissionError WinError 5），因此必须用默认 mode 自建。

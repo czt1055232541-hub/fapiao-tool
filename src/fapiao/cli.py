@@ -46,7 +46,7 @@ def _open_log(run_date) -> "object | None":
 
 
 def _force_utf8() -> None:
-    """Windows 控制台默认 GBK，中文/符号会 UnicodeEncodeError（AGENTS.md 环境坑位 6）。"""
+    """Windows 控制台默认 GBK，中文/符号会 UnicodeEncodeError（docs/环境坑位.md 6）。"""
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
@@ -86,6 +86,16 @@ def main(argv: list[str] | None = None) -> int:
     _force_utf8()
     args = build_parser().parse_args(argv)
     cfg = config.load_config(args.config)
+
+    issues = config.check_ready(cfg)
+    if issues:
+        print("配置还没填完，先不跑。照 config.example.json 建一份 config.json，填好这几项：")
+        for item in issues:
+            print("  - " + item)
+        print()
+        print("完整说明见 README.md 的「快速开始」。")
+        return 2
+
     run_date = _parse_date(args.run_date) if args.run_date else date.today()
     since = _parse_date(args.since) if args.since else None
     before = _parse_date(args.before) if args.before else None
