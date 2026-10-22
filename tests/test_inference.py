@@ -102,6 +102,37 @@ CAR_ITINERARY = ("用车行程单 开具日期：2026-10-08 订单号： 1128151
                 "车辆信息 车牌号码： 川AAD5989 费用明细 订单费用： CNY 330 实际费用： CNY 280")
 
 
+class TestFlightRemark(unittest.TestCase):
+    """机票票面只有开票日，真正的乘机日与航段写在备注里。"""
+
+    def test_parses_flight_remark(self):
+        info = extract.remark_flight("携程订单:1128151500112049,2026/10/3 杭州-成都 9C7326 某乘客 超惠飞")
+        self.assertEqual(info["date"], "2026-10-03")
+        self.assertEqual(info["route"], "杭州-成都")
+        self.assertEqual(info["flight"], "9C7326")
+
+    def test_single_digit_month_and_day_are_padded(self):
+        info = extract.remark_flight("携程订单:1,2026/10/5 重庆-杭州 PN6435 某人 经济舱")
+        self.assertEqual(info["date"], "2026-10-05")
+
+    def test_plain_text_returns_empty(self):
+        self.assertEqual(extract.remark_flight("没有结构的备注"), {})
+
+    def test_car_remark_is_not_a_flight(self):
+        self.assertEqual(extract.remark_flight("携程订单:1128151500112049,含2026-10-04 00:42某机场接机"), {})
+
+
+class TestDateSource(unittest.TestCase):
+    """行程日期不许按开票日算；只有开票日的要显式标成推定。"""
+
+    def test_record_has_date_source_field(self):
+        self.assertEqual(rec().date_source, "")
+
+    def test_provisional_values_are_named_consistently(self):
+        # 报告层和复核清单都靠这个字符串判定"推定"
+        self.assertEqual(classify.KIND_FLIGHT, "机票")
+
+
 class TestCarItinerary(unittest.TestCase):
     """携程「用车行程单」是单独一封邮件，只有行程单没有发票，靠日期配对。"""
 

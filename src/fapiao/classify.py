@@ -305,36 +305,56 @@ def detect_kind(meta: Meta, has_itinerary: bool, text: str) -> str:
 
 def _location_and_date(
     meta: Meta, itinerary: extract.ItineraryMeta, group: Group, kind: str, full_text: str
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
+    """返回 (地点, 行程日期, 日期来源)。
+
+    **日期一律优先取票面备注里的真实时间，取不到才退回开票日** ——
+    机票票面只有开票日，真正乘机日只写在备注里，用开票日会把整趟行程的日期搞错。
+    """
+    date_source = "开票日（推定）"
     mail_body = f"{group.mail.subject}\n{group.mail.text}"
     remark = extract.remark_service(full_text)
     if kind == KIND_TAXI:
         city = ("-".join(itinerary.cities) if itinerary.cities
                 else remark.get("city") or "城市待核")
-        when = (itinerary.date or remark.get("date") or meta.travel_date
-                or meta.issue_date or "日期待核")
-        return city, when
+        if itinerary.date:
+            return city, itinerary.date, "行程单"
+        if remark.get("date"):
+            return city, remark["date"], "备注"
+        when = meta.travel_date or meta.issue_date or "日期待核"
+        return city, when, ("票面" if meta.travel_date else "开票日（推定）")
     if kind in (KIND_RAIL, KIND_RAIL_REFUND):
         route = extract.rail_route(full_text)
-        return (route or "铁路地点待核"), (meta.travel_date or meta.issue_date or "日期待核")
+        when = meta.travel_date or meta.issue_date or "日期待核"
+        return (route or "铁路地点待核"), when, ("票面" if meta.travel_date else "开票日（推定）")
     if kind == KIND_FLIGHT:
-        route = extract.flight_route(full_text) or extract.flight_route(group.mail.subject)
-        return (route or "航程待核"), (meta.travel_date or meta.issue_date or "日期待核")
+        # 机票票面只有开票日，真正的乘机日与航段写在备注里
+        flight = extract.remark_flight(full_text)
+        route = (flight.get("route") or extract.flight_route(full_text)
+                 or extract.flight_route(group.mail.subject))
+        if flight.get("date"):
+            return (route or "航程待核"), flight["date"], "备注"
+        when = meta.travel_date or meta.issue_date or "日期待核"
+        return (route or "航程待核"), when, ("票面" if meta.travel_date else "开票日（推定）")
     if kind == KIND_HOTEL:
         start, end = extract.hotel_stay(mail_body)
-        when = f"{start}至{end}" if start and end and start != end else (start or meta.issue_date or "日期待核")
         # 顺序：邮件正文 > 销售方地址 > 备注。微信来的票没有正文，只能靠后两者
         city = (extract.hotel_city(group.mail.subject, group.mail.text)
                 or extract.seller_address_city(full_text)
                 or remark.get("city") or "地点待核")
-        return city, when
+        if start:
+            when = f"{start}至{end}" if end and start != end else start
+            return city, when, "邮件正文"
+        return city, (meta.issue_date or "日期待核"), "开票日（推定）"
     if kind == KIND_ENTERTAIN:
         # 餐饮发票正文里不写城市，只能从主题/销售方名称里认（参考实现也是这么做的）。
         city = extract.hotel_city(group.mail.subject, group.mail.text, meta.seller_name) or "地点待核"
-        return city, (meta.issue_date or "日期待核")
+        return city, (meta.issue_date or "日期待核"), "开票日（推定）"
     # 其他类：先看「销售方地址」字段，再看结构化备注，都认不出才是地点待核
     city = extract.seller_address_city(full_text) or remark.get("city") or "地点待核"
-    return city, (meta.issue_date or "日期待核")
+    if remark.get("date"):
+        return city, remark["date"], "备注"
+    return city, (meta.issue_date or "日期待核"), "开票日（推定）"
 
 
 def _build_record(
@@ -349,7 +369,7 @@ def _build_record(
     image_att: Attachment | None,
 ) -> Record:
     kind = detect_kind(meta, itinerary_att is not None, raw_text)
-    location, when = _location_and_date(meta, itinerary, group, kind, raw_text)
+    location, when, date_source = _location_and_date(meta, itinerary, group, kind, raw_text)
     buyer, _basis = detect_buyer(meta, raw_text, cfg)
     home = (cfg.get("classify") or {}).get("homeCity", "杭州")
 
@@ -394,6 +414,7 @@ def _build_record(
     record.expense_item = expense_item(meta, cfg)
     record.remark = remark.get("desc", "")
     record.is_airport_transfer = airport_transfer
+    record.date_source = date_source
     record.needs_material_list = purpose == PURPOSE_OTHER and any(
         word in " ".join(meta.item_names) for word in ("材料", "耗材", "货物", "试剂", "化学品", "元器件")
     )

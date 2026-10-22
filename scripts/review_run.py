@@ -114,8 +114,17 @@ def show(run: Path) -> int:
             print(f"      …… 还有 {len(items) - 6} 条")
     print()
 
+    provisional = summary.get("provisionalDates") or []
+    print("=== 4. 行程日期只有开票日的（推定值，不是真实行程日期）===")
+    if not provisional:
+        print("  无")
+    for item in provisional:
+        print(f"  {item.get('seq'):>3} {float(item.get('amount', 0)):>9.2f} "
+              f"{str(item.get('kind')):<8} 按 {item.get('travel_date')} 归（=开票日 {item.get('issue_date')}）")
+    print()
+
     needs = summary.get("needsDocs") or []
-    print("=== 4. 需补证明材料（不影响金额，但要补齐才能交）===")
+    print("=== 5. 需补证明材料（不影响金额，但要补齐才能交）===")
     if not needs:
         print("  无")
     for item in needs:
@@ -123,7 +132,7 @@ def show(run: Path) -> int:
               f"{str(item.get('location'))[:14]:<16} 缺：{item.get('missing')}")
     print()
 
-    print("=== 5. 金额三处一致性 ===")
+    print("=== 6. 金额三处一致性 ===")
     detail_total = round(sum(r["amount"] for r in included), 2)
     print(f"  明细自算：{detail_total:.2f}")
     print(f"  摘要记录：{float(summary.get('included_total', 0)):.2f}")
@@ -138,7 +147,7 @@ def show(run: Path) -> int:
     print(f"  -> {'三处一致' if ok else '不一致！'}")
     print()
 
-    print("=== 6. 与上一期的差异 ===")
+    print("=== 7. 与上一期的差异 ===")
     previous = [r for r in runs() if r.name < run.name]
     if not previous:
         print("  这是第一份归档")

@@ -16,6 +16,7 @@ from .textutil import safe_name
 EXCEL_HEADER = [
     "序号", "抬头", "用途", "行程日期", "地点或路线", "票据类型", "金额", "发票号码",
     "归档状态", "金额口径", "归档发票", "计入总额", "分类", "开支项目", "需补材料", "备注",
+    "日期来源",
 ]
 
 
@@ -55,6 +56,12 @@ def summary_payload(
         "category_counts": {k: len(v) for k, v in sorted(categories.items())},
         "分类汇总PDF": merged,
         # 已计入、但还缺证明材料的票：不影响金额，只提醒去补（如大额打车的行程单）
+        # 行程日期只有开票日的：这是推定值，不是真实行程日期，统计时要当心
+        "provisionalDates": [
+            {"seq": r.seq, "amount": r.amount, "kind": r.kind,
+             "travel_date": r.travel_date, "issue_date": r.issue_date}
+            for r in included if r.date_source == "开票日（推定）"
+        ],
         "needsDocs": [
             {"seq": r.seq, "amount": r.amount, "kind": r.kind,
              "location": r.location, "missing": missing_docs(r)}
@@ -296,10 +303,10 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
         summary_sheet.column_dimensions[column].width = width
 
     audit_sheet["A2"] = "发票归档审计明细"
-    audit_sheet.merge_cells("A2:P2")
+    audit_sheet.merge_cells("A2:Q2")
     audit_sheet["A2"].font = title_font
     audit_sheet["A3"] = "黄色行为存疑记录：已归档备查，但不计入报销总额与分类汇总 PDF。"
-    audit_sheet.merge_cells("A3:P3")
+    audit_sheet.merge_cells("A3:Q3")
     audit_sheet["A3"].font = note_font
     for column, header in enumerate(EXCEL_HEADER, start=1):
         audit_sheet.cell(row=4, column=column, value=header)
@@ -311,7 +318,7 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
             record.kind, record.amount, record.invoice_number, record.archive_status,
             record.amount_scope + ("（计入）" if record.included else "（剔除）"),
             record.archived_invoice, "是" if record.included else "否", record.category,
-            record.expense_item, missing_docs(record), record.remark,
+            record.expense_item, missing_docs(record), record.remark, record.date_source,
         ]
         for column, value in enumerate(values, start=1):
             cell = audit_sheet.cell(row=r, column=column, value=value)
@@ -330,8 +337,8 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
         audit_sheet.cell(row=r, column=7).number_format = "#,##0.00"
         audit_sheet.cell(row=r, column=8).number_format = "@"
     audit_sheet.freeze_panes = "D5"
-    for column, width in zip("ABCDEFGHIJKLMNOP",
-                             (7, 13, 18, 24, 27, 16, 12, 24, 12, 23, 70, 12, 28, 16, 14, 34)):
+    for column, width in zip("ABCDEFGHIJKLMNOPQ",
+                             (7, 13, 18, 24, 27, 16, 12, 24, 12, 23, 70, 12, 28, 16, 14, 34, 14)):
         audit_sheet.column_dimensions[column].width = width
     audit_sheet.row_dimensions[4].height = 32
 

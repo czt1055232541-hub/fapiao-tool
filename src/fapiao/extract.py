@@ -315,6 +315,32 @@ _CAR_FIELD = {
 }
 
 
+# 机票的备注里写着真正的乘机日期和航段：
+#   携程订单:1128151500112049,2026/10/3 杭州-成都 9C7326 某乘客 超惠飞
+_FLIGHT_REMARK = re.compile(
+    r"携程订单[:：]\s*\d+\s*[,，]\s*(\d{4})/(\d{1,2})/(\d{1,2})\s+"
+    r"([\u4e00-\u9fff]{2,6})-([\u4e00-\u9fff]{2,6})\s+([0-9A-Z]{2}\d{3,4})"
+)
+
+
+def remark_flight(text: str) -> dict:
+    """从机票备注里抽行程日期、航段、航班号。抽不出返回空 dict。
+
+    机票票面上只有开票日期，真正的乘机日期只写在备注里 —— 用开票日期当行程日期
+    会把整趟行程的日期搞错（实测差 5 天）。
+    """
+    match = _FLIGHT_REMARK.search(text or "")
+    if not match:
+        return {}
+    return {
+        "date": "%s-%02d-%02d" % (match.group(1), int(match.group(2)), int(match.group(3))),
+        "from": match.group(4),
+        "to": match.group(5),
+        "route": f"{match.group(4)}-{match.group(5)}",
+        "flight": match.group(6),
+    }
+
+
 def car_itinerary(text: str) -> dict:
     """从「携程用车行程单」里抽出订单号、用车时间、起止点、金额。不是用车单返回空 dict。"""
     match = _CAR_TIME.search(text or "")
