@@ -261,6 +261,13 @@ class TestMissingDocs(unittest.TestCase):
 
         self.assertEqual(report.missing_docs(rec(kind=classify.KIND_TAXI, amount=19.46)), "")
 
+    def test_low_value_airport_transfer_still_needs_itinerary(self):
+        """接送机不看金额 —— 它是机票那一程的地面段。"""
+        from fapiao import report
+
+        record = rec(kind=classify.KIND_TAXI, amount=82.0, needs_itinerary=True)
+        self.assertEqual(report.missing_docs(record), "行程单")
+
     def test_material_invoice_needs_list(self):
         from fapiao import report
 

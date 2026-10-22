@@ -422,10 +422,11 @@ def _build_record(
     joined_items = " ".join(meta.item_names)
     record.needs_receipt = any(word in joined_items for word in ("收派服务", "快递", "运费")) \
         or "顺丰" in (meta.seller_name or "")
-    # 单张打车费超过门槛的，汇总材料里必须附行程单（浙大报销口径，2026-10 定）。
-    # 只在"打车"上要求：住宿发票的入住单、机票的行程单另有规则。
+    # 汇总材料里必须附行程单的打车票（2026-10 定的口径）：
+    #   ① 单张打车费超过门槛（默认 200 元）
+    #   ② 机场接送 —— **不论金额**。它是机票那一程的地面段，本身就是行程的一部分。
     threshold = float((cfg.get("classify") or {}).get("taxiItineraryThreshold") or 200)
-    record.needs_itinerary = kind == KIND_TAXI and record.amount > threshold
+    record.needs_itinerary = kind == KIND_TAXI and (record.amount > threshold or airport_transfer)
     record.archived_invoice = ""
     record.reasons = _initial_reasons(record, meta, itinerary, itinerary_att, image_att, invoice_pdf, home)
     return record
