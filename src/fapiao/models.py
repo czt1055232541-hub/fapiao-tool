@@ -108,6 +108,8 @@ class Record:
     is_airport_transfer: bool = False  # 接送机：算差旅，不算杭州市内通勤
     needs_itinerary: bool = False      # 单张打车费超过门槛，汇总材料里必须附行程单
     needs_material_list: bool = False  # 材料费：报销时要另附自购材料清单
+    needs_receipt: bool = False        # 快递/运费：报销时要另附订单收据
+    supporting: list[dict] = field(default_factory=list)  # 支持材料（订单收据等），归档后带 archived 字段
     category: str = ""
     included: bool = False
     archived_invoice: str = ""

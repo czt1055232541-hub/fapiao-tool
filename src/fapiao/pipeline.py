@@ -86,6 +86,7 @@ def run(
 
     # ---------- 2. 解析 + 3. 归类 ----------
     records: list[Record] = []
+    supporting_docs: list[dict] = []
     orphan_itineraries: list[tuple[str, str]] = []
     skipped = {
         "mails": [], "attachments": [], "duplicates": [], "orphan_itineraries": [],
@@ -110,7 +111,8 @@ def run(
                 if att.path:
                     orphan_itineraries.append((att.path, att.filename))
             continue
-        record, _meta, extra = classify.prepare(group, cfg)
+        record, _meta, extra, supporting = classify.prepare(group, cfg)
+        supporting_docs.extend(supporting)
         for item in extra:
             skipped["attachments"].append({
                 "mail_uid": item.mail_uid, "subject": item.subject,
@@ -125,6 +127,8 @@ def run(
                     "mail_uid": group.mail.uid, "subject": group.mail.subject,
                     "filename": att.filename, "reason": "OFD 版式文件按配置忽略（PDF 已归档）",
                 })
+
+    _attach_supporting(records, supporting_docs, skipped, log)
 
     # ---------- 排除清单（作废 / 交由他人报销 / 月中已报销） ----------
     table = exclusions.load(archive_cfg.get("exclusionsFile") or None)
@@ -254,6 +258,27 @@ def _apply_year_scope(records: list[Record], include_since_year: int | None) -> 
         if year and year < include_since_year:
             record.included = False
             record.archive_status = "已归档"
+
+
+def _attach_supporting(records: list[Record], docs: list[dict], skipped: dict, log=print) -> None:
+    """把「订单收据」这类支持材料按发票号码挂到对应发票上。
+
+    挂不上就留痕，不静默丢 —— 说明那张单独的凭证找不到主发票。
+    """
+    by_number = {r.invoice_number: r for r in records if r.invoice_number and r.invoice_number != "未识别"}
+    attached = 0
+    for doc in docs:
+        target = by_number.get(doc.get("invoice_number") or "")
+        if target is None:
+            skipped["attachments"].append({
+                "filename": doc.get("filename"),
+                "reason": f"订单收据找不到对应发票（号码 {doc.get('invoice_number')}），未归档",
+            })
+            continue
+        target.supporting.append(doc)
+        attached += 1
+    if attached:
+        log(f"[材料] {attached} 份订单收据已挂到对应发票后面")
 
 
 def _stamp_scope(records: list[Record]) -> None:

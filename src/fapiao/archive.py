@@ -92,6 +92,19 @@ def place(record: Record, run_dir: Path, cfg: dict) -> None:
         shutil.copy2(record.source_itinerary, itinerary_out)
         record.archived_itinerary = str(itinerary_out.relative_to(run_dir))
 
+    # 支持材料（订单收据等）：紧跟发票，命名带类型，汇总 PDF 会把它排在发票后面
+    for index, item in enumerate(record.supporting, start=1):
+        source = Path(item.get("path") or "")
+        if not source.is_file():
+            continue
+        label = safe_name(str(item.get("kind") or "证明"), 20)
+        out = target / f"{stem}_{label}{'' if index == 1 else index}.pdf"
+        try:
+            shutil.copy2(source, out)
+        except OSError:
+            continue
+        item["archived"] = str(out.relative_to(run_dir))
+
     if record.source_xml and Path(record.source_xml).is_file():
         raw_out = run_dir / RAW_DIR / f"{stem}.xml"
         raw_out.parent.mkdir(parents=True, exist_ok=True)

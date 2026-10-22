@@ -63,11 +63,13 @@ def main() -> int:
             continue
         if path.parent.name != (run / "00_汇总发票").name and path.parent != run / "00_汇总发票":
             problems.append(f"分类汇总 PDF 不在 00_汇总发票 下：{path}")
-        expected_pages = item["invoice_count"] + int(item.get("itinerary_pages") or 0)
+        expected_pages = (item["invoice_count"] + int(item.get("itinerary_pages") or 0)
+                          + int(item.get("supporting_pages") or 0))
         if item["page_count"] != expected_pages:
             problems.append(
                 f"{item['category']} 页数 {item['page_count']} != 张数 {item['invoice_count']}"
                 f" + 行程单 {int(item.get('itinerary_pages') or 0)}"
+                f" + 证明材料 {int(item.get('supporting_pages') or 0)}"
             )
 
     for bucket, items in (summary.get("skipped") or {}).items():

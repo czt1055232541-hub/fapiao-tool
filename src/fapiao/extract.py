@@ -301,6 +301,12 @@ def remark_service(text: str) -> dict:
     }
 
 
+def invoice_number_of(text: str) -> str:
+    """从任意文本里取第一个 20 位发票号码（用来把运单明细挂回它的发票）。"""
+    match = re.search(r"(?<!\d)(\d{20})(?!\d)", text or "")
+    return match.group(1) if match else ""
+
+
 def looks_like_document_only(text: str, filename: str = "") -> bool:
     """判断这其实是一份「清单」而不是发票。
 

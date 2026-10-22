@@ -115,8 +115,15 @@ def is_probable_invoice(meta: Meta, raw_text: str, filename: str, has_xml: bool,
     return any(marker in haystack for marker in INVOICE_MARKERS)
 
 
-def prepare(group: Group, cfg: dict) -> tuple[Record | None, Meta, list[Skipped]]:
-    """把一组附件转成一条待定稿记录；不像发票时返回 None 并留痕。"""
+def prepare(
+    group: Group, cfg: dict
+) -> tuple[Record | None, Meta, list[Skipped], list[dict]]:
+    """把一组附件转成一条待定稿记录；不像发票时返回 None 并留痕。
+
+    第 4 个返回值是**支持材料**：像「顺丰运单明细」这种不是发票、但要跟着发票一起交的凭证。
+    它们靠单子上印的发票号码挂回对应发票（见 pipeline 的 _attach_supporting）。
+    """
+    supporting: list[dict] = []
     skipped: list[Skipped] = []
     meta = Meta()
     itinerary = extract.ItineraryMeta()
@@ -170,21 +177,37 @@ def prepare(group: Group, cfg: dict) -> tuple[Record | None, Meta, list[Skipped]
         )
 
     if raw_text and extract.looks_like_document_only(raw_text, group.key):
-        skipped.append(
-            Skipped(kind="attachment", reason=R_DOCUMENT_ONLY, mail_uid=group.mail.uid,
-                    subject=group.mail.subject, filename=group.key)
-        )
-        return None, meta, skipped
+        # 顺丰的「运单明细」不是发票，但**正是报销要的订单收据**：上面印着发票号码，
+        # 按号码挂回对应发票，跟着它一起进汇总 PDF。
+        number = extract.invoice_number_of(raw_text)
+        if number:
+            supporting.append({
+                "kind": "订单收据",
+                "invoice_number": number,
+                "path": group.invoice.path if group.invoice else "",
+                "filename": group.key,
+            })
+            skipped.append(
+                Skipped(kind="attachment",
+                        reason=f"运单/对账清单（已作为「订单收据」挂到发票 {number[-6:]} 后面）",
+                        mail_uid=group.mail.uid, subject=group.mail.subject, filename=group.key)
+            )
+        else:
+            skipped.append(
+                Skipped(kind="attachment", reason=R_DOCUMENT_ONLY, mail_uid=group.mail.uid,
+                        subject=group.mail.subject, filename=group.key)
+            )
+        return None, meta, skipped, supporting
 
     if not is_probable_invoice(meta, raw_text, group.key, xml_att is not None, image_att is not None):
         skipped.append(
             Skipped(kind="attachment", reason=R_NOT_AN_INVOICE, mail_uid=group.mail.uid,
                     subject=group.mail.subject, filename=group.key)
         )
-        return None, meta, skipped
+        return None, meta, skipped, supporting
 
     record = _build_record(group, meta, itinerary, cfg, raw_text, invoice_pdf, itinerary_att, xml_att, image_att)
-    return record, meta, skipped
+    return record, meta, skipped, supporting
 
 
 def _merge_meta(primary: Meta, fallback: Meta) -> Meta:
@@ -374,6 +397,10 @@ def _build_record(
     record.needs_material_list = purpose == PURPOSE_OTHER and any(
         word in " ".join(meta.item_names) for word in ("材料", "耗材", "货物", "试剂", "化学品", "元器件")
     )
+    # 快递/运费：报销要附订单收据（顺丰邮件里那份「运单明细」就是）
+    joined_items = " ".join(meta.item_names)
+    record.needs_receipt = any(word in joined_items for word in ("收派服务", "快递", "运费")) \
+        or "顺丰" in (meta.seller_name or "")
     # 单张打车费超过门槛的，汇总材料里必须附行程单（浙大报销口径，2026-10 定）。
     # 只在"打车"上要求：住宿发票的入住单、机票的行程单另有规则。
     threshold = float((cfg.get("classify") or {}).get("taxiItineraryThreshold") or 200)

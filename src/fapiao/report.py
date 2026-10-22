@@ -92,6 +92,8 @@ def missing_docs(record: Record) -> str:
     missing = []
     if record.needs_itinerary and not record.archived_itinerary:
         missing.append("行程单")
+    if record.needs_receipt and not any(item.get("archived") for item in record.supporting):
+        missing.append("订单收据")
     if record.needs_material_list:
         missing.append("自购材料清单")
     return "；".join(missing)
@@ -122,6 +124,7 @@ def merge_category_pdfs(
         writer = PdfWriter()
         page_count = 0
         itinerary_pages = 0
+        supporting_pages = 0
         for item in items:
             source = run_dir / item.archived_invoice
             reader = PdfReader(str(source))
@@ -147,6 +150,25 @@ def merge_category_pdfs(
                         writer.add_outline_item(
                             safe_name(f"行程单_{item.travel_date}_{item.amount:.2f}元", 180), itin_start
                         )
+            # 支持材料（如顺丰运单明细）：排在发票/行程单后面，打印时一张票的材料连在一起
+            for doc in item.supporting:
+                rel = doc.get("archived")
+                if not rel:
+                    continue
+                doc_path = run_dir / rel
+                if not doc_path.is_file():
+                    continue
+                doc_reader = PdfReader(str(doc_path))
+                doc_start = page_count
+                for page in doc_reader.pages:
+                    writer.add_page(page)
+                    page_count += 1
+                    supporting_pages += 1
+                if len(doc_reader.pages):
+                    writer.add_outline_item(
+                        safe_name(f"{doc.get('kind')}_{item.travel_date}_{item.amount:.2f}元", 180),
+                        doc_start,
+                    )
         with out_path.open("wb") as handle:
             writer.write(handle)
         check = PdfReader(str(out_path))
@@ -158,9 +180,15 @@ def merge_category_pdfs(
             "amount": total,
             "page_count": page_count,
             "itinerary_pages": itinerary_pages,
+            "supporting_pages": supporting_pages,
             "path": str(out_path),
         })
-        extra = f"（含行程单 {itinerary_pages} 页）" if itinerary_pages else ""
+        extras = []
+        if itinerary_pages:
+            extras.append(f"行程单 {itinerary_pages} 页")
+        if supporting_pages:
+            extras.append(f"证明材料 {supporting_pages} 页")
+        extra = f"（含{'、'.join(extras)}）" if extras else ""
         log(f"[报告] 合并 {category}：{len(items)} 张 / {total:.2f} 元 / {page_count} 页{extra}")
 
     for stale in out_dir.glob("*.pdf"):

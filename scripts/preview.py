@@ -85,7 +85,7 @@ def main() -> int:
     for group in groups:
         if group.invoice is None:
             continue
-        record, _meta, _extra = classify.prepare(group, cfg)
+        record, _meta, _extra, _supporting = classify.prepare(group, cfg)
         (records if record is not None else not_invoice).append(record or group)
 
     print(f"\n暂存目录 {info['staging']}")

@@ -97,6 +97,52 @@ class TestAirportTransfer(unittest.TestCase):
         self.assertEqual(classify.adopt_orphan_by_date([taxi], [cluster], CFG), 0)
 
 
+class TestSupportingDocs(unittest.TestCase):
+    """顺丰的「运单明细」不是发票，但是报销要的订单收据，要挂在发票后面。"""
+
+    def test_express_invoice_needs_receipt(self):
+        meta = Meta(seller_name="浙江顺丰速运有限公司",
+                    item_names=["*生产生活服务*收派服务"])
+        self.assertTrue(classify._is_non_travel(meta))
+        joined = " ".join(meta.item_names)
+        self.assertTrue(any(w in joined for w in ("收派服务", "快递", "运费")))
+
+    def test_missing_docs_reports_receipt_until_attached(self):
+        from fapiao import report
+
+        record = rec(needs_receipt=True)
+        self.assertEqual(report.missing_docs(record), "订单收据")
+
+        record.supporting = [{"kind": "订单收据", "archived": "x/订单收据.pdf"}]
+        self.assertEqual(report.missing_docs(record), "")
+
+    def test_attach_by_invoice_number(self):
+        from fapiao.pipeline import _attach_supporting
+
+        invoice = rec(invoice_number="26337000000859509054", needs_receipt=True)
+        skipped = {"attachments": []}
+        _attach_supporting(
+            [invoice],
+            [{"kind": "订单收据", "invoice_number": "26337000000859509054", "path": "x.pdf"}],
+            skipped, log=lambda *_a, **_k: None)
+        self.assertEqual(len(invoice.supporting), 1)
+        self.assertEqual(skipped["attachments"], [])
+
+    def test_unmatched_receipt_is_traced_not_dropped(self):
+        from fapiao.pipeline import _attach_supporting
+
+        skipped = {"attachments": []}
+        _attach_supporting([], [{"kind": "订单收据", "invoice_number": "999", "path": "x.pdf"}],
+                           skipped, log=lambda *_a, **_k: None)
+        self.assertEqual(len(skipped["attachments"]), 1)
+        self.assertIn("找不到对应发票", skipped["attachments"][0]["reason"])
+
+    def test_invoice_number_of_reads_the_manifest(self):
+        manifest = "1-1 顺丰电子发票 — 运单明细 开票时间 发票号码 2026/10/08 26337000000859509879"
+        self.assertEqual(extract.invoice_number_of(manifest), "26337000000859509879")
+        self.assertEqual(extract.invoice_number_of("没有号码"), "")
+
+
 class TestMissingDocs(unittest.TestCase):
     """单张大额打车要行程单；材料费要自购材料清单（依据见 docs/证明材料要求.md）。"""
 
