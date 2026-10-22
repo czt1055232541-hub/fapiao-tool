@@ -15,7 +15,7 @@ from .textutil import safe_name
 
 EXCEL_HEADER = [
     "序号", "抬头", "用途", "行程日期", "地点或路线", "票据类型", "金额", "发票号码",
-    "归档状态", "金额口径", "归档发票", "计入总额", "分类",
+    "归档状态", "金额口径", "归档发票", "计入总额", "分类", "开支项目", "备注",
 ]
 
 
@@ -235,10 +235,10 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
         summary_sheet.column_dimensions[column].width = width
 
     audit_sheet["A2"] = "发票归档审计明细"
-    audit_sheet.merge_cells("A2:M2")
+    audit_sheet.merge_cells("A2:O2")
     audit_sheet["A2"].font = title_font
     audit_sheet["A3"] = "黄色行为存疑记录：已归档备查，但不计入报销总额与分类汇总 PDF。"
-    audit_sheet.merge_cells("A3:M3")
+    audit_sheet.merge_cells("A3:O3")
     audit_sheet["A3"].font = note_font
     for column, header in enumerate(EXCEL_HEADER, start=1):
         audit_sheet.cell(row=4, column=column, value=header)
@@ -250,6 +250,7 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
             record.kind, record.amount, record.invoice_number, record.archive_status,
             record.amount_scope + ("（计入）" if record.included else "（剔除）"),
             record.archived_invoice, "是" if record.included else "否", record.category,
+            record.expense_item, record.remark,
         ]
         for column, value in enumerate(values, start=1):
             cell = audit_sheet.cell(row=r, column=column, value=value)
@@ -259,7 +260,7 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
             if not record.included:
                 cell.fill = warn
     last_row = 4 + len(records)
-    for column in range(1, 14):
+    for column in range(1, len(EXCEL_HEADER) + 1):
         cell = audit_sheet.cell(row=4, column=column)
         cell.fill = dark
         cell.font = white_bold
@@ -268,7 +269,8 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
         audit_sheet.cell(row=r, column=7).number_format = "#,##0.00"
         audit_sheet.cell(row=r, column=8).number_format = "@"
     audit_sheet.freeze_panes = "D5"
-    for column, width in zip("ABCDEFGHIJKLM", (7, 13, 18, 24, 27, 16, 12, 24, 12, 23, 70, 12, 28)):
+    for column, width in zip("ABCDEFGHIJKLMNO",
+                             (7, 13, 18, 24, 27, 16, 12, 24, 12, 23, 70, 12, 28, 16, 34)):
         audit_sheet.column_dimensions[column].width = width
     audit_sheet.row_dimensions[4].height = 32
 

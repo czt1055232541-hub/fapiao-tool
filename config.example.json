@@ -39,7 +39,11 @@
       }
     ],
     "homeCity": "杭州",
-    "tripGapDays": 4
+    "tripGapDays": 4,
+    "expenseItems": [
+      { "match": "顺丰", "item": "运费" },
+      { "match": "深度求索", "item": "Token 充值" }
+    ]
   },
   "report": {
     "summaryName": "00_审计摘要.json",

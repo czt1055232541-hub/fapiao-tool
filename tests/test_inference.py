@@ -23,6 +23,79 @@ def rec(**kw) -> Record:
     return Record(**base)
 
 
+# 携程真实票据的备注（已脱敏：订单号换成占位）
+CTRIP_REMARK = "扣除额:267.3。 | 携程订单:1128151500112049,含2026-10-04 00:42成都天府国际机场接机"
+
+
+class TestRemarkService(unittest.TestCase):
+    """备注里有结构化行程：什么时间、在哪个城市、做了什么。"""
+
+    def test_parses_ctrip_remark(self):
+        info = extract.remark_service(CTRIP_REMARK)
+        self.assertEqual(info["date"], "2026-10-04")
+        self.assertEqual(info["time"], "00:42")
+        self.assertEqual(info["city"], "成都")
+        self.assertEqual(info["service"], "接机")
+        self.assertIn("天府国际机场", info["desc"])
+
+    def test_hangzhou_pickup(self):
+        info = extract.remark_service("携程订单:1,含2026-10-05 19:05杭州萧山国际机场接机")
+        self.assertEqual(info["city"], "杭州")
+        self.assertEqual(info["service"], "接机")
+
+    def test_plain_text_returns_empty(self):
+        self.assertEqual(extract.remark_service("随便一段没有结构的备注"), {})
+
+    def test_remark_without_city_still_reports_service(self):
+        info = extract.remark_service("携程订单:1,含2026-10-04 08:00某某机场接机")
+        self.assertEqual(info["service"], "接机")
+        self.assertEqual(info["city"], "")
+
+
+class TestRemarkTurnsIntoTaxi(unittest.TestCase):
+    def test_airport_pickup_is_ground_transport(self):
+        """携程「代订附加」本身看不出是交通，但备注写着接机 —— 按打车处理，
+        才能进对应行程（成都）或杭州市内打车票（杭州）。"""
+        meta = Meta(item_names=["*生产生活服务*代订附加"])
+        self.assertEqual(classify.detect_kind(meta, False, CTRIP_REMARK), classify.KIND_TAXI)
+
+    def test_without_remark_stays_other(self):
+        meta = Meta(item_names=["*生产生活服务*代订附加"])
+        self.assertEqual(classify.detect_kind(meta, False, "无备注"), classify.KIND_OTHER)
+
+
+class TestExpenseItemTable(unittest.TestCase):
+    CFG2 = {"classify": {"expenseItems": [
+        {"match": "顺丰", "item": "运费"},
+        {"match": "深度求索", "item": "Token 充值"},
+    ]}}
+
+    def _meta(self, seller, item):
+        return Meta(seller_name=seller, item_names=[item])
+
+    def test_express_delivery_is_freight(self):
+        meta = self._meta("浙江顺丰速运有限公司", "*生产生活服务*收派服务")
+        self.assertEqual(classify.expense_item(meta, self.CFG2), "运费")
+
+    def test_deepseek_is_token_topup(self):
+        meta = self._meta("杭州深度求索人工智能基础技术研究有限公司", "*生产生活服务*技术服务")
+        self.assertEqual(classify.expense_item(meta, self.CFG2), "Token 充值")
+
+    def test_unknown_supplier_is_not_guessed(self):
+        meta = self._meta("某不知名公司", "*生产生活服务*技术服务")
+        self.assertEqual(classify.expense_item(meta, self.CFG2), "")
+
+    def test_first_match_wins(self):
+        cfg = {"classify": {"expenseItems": [
+            {"match": "科技", "item": "第一"}, {"match": "公司", "item": "第二"}]}}
+        meta = self._meta("某科技有限公司", "*x*服务")
+        self.assertEqual(classify.expense_item(meta, cfg), "第一")
+
+    def test_empty_table_returns_blank(self):
+        meta = self._meta("浙江顺丰速运有限公司", "*生产生活服务*收派服务")
+        self.assertEqual(classify.expense_item(meta, CFG), "")
+
+
 class TestSellerAddressCity(unittest.TestCase):
     def test_extracts_from_seller_address_only(self):
         text = "销售方地址:四川省遂宁市安居区某某路1号;    电话:13900000000;"

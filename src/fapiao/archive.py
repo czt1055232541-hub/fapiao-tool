@@ -196,6 +196,15 @@ def prepare_run_dir(root: Path, name: str, force: bool) -> Path:
                 f"确认要重建请加 --force（会先清空该目录）。"
             )
         if force:
-            shutil.rmtree(run_dir)
+            try:
+                shutil.rmtree(run_dir)
+            except PermissionError as exc:
+                # 最常见的原因：Excel 正开着 00_发票审计明细及汇总.xlsx。
+                # 直接抛 WinError 32 没人看得懂，这里翻译成人话。
+                busy = str(exc.filename or "").rsplit("\\", 1)[-1] or "某个文件"
+                raise PermissionError(
+                    f"无法清空运行目录，文件被占用：{busy}\n"
+                    f"多半是 Excel 正开着这个目录里的表格。关掉它再重跑。"
+                ) from exc
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir

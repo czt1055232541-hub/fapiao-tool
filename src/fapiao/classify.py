@@ -236,6 +236,22 @@ def _is_non_travel(meta: Meta) -> bool:
     return any(word in joined for word in _NON_TRAVEL_WORDS)
 
 
+def expense_item(meta: Meta, cfg: dict) -> str:
+    """按「开具公司 / 项目名称」查表推断开支项目。
+
+    表在 config.json 的 classify.expenseItems，例：
+      [{"match": "顺丰", "item": "运费"}, {"match": "深度求索", "item": "Token 充值"}]
+    按顺序匹配，第一个命中的胜出；没命中返回空串（**不猜**）。
+    """
+    rules = (cfg.get("classify") or {}).get("expenseItems") or []
+    haystack = f"{meta.seller_name} {' '.join(meta.item_names)}"
+    for rule in rules:
+        keyword = str(rule.get("match") or "").strip()
+        if keyword and keyword in haystack:
+            return str(rule.get("item") or "").strip()
+    return ""
+
+
 def detect_kind(meta: Meta, has_itinerary: bool, text: str) -> str:
     joined = " ".join(meta.item_names)
     if meta.is_rail:
@@ -248,6 +264,10 @@ def detect_kind(meta: Meta, has_itinerary: bool, text: str) -> str:
         return KIND_ENTERTAIN
     if has_itinerary or any(word in joined for word in _TAXI_WORDS):
         return KIND_TAXI
+    # 携程「代订附加」这类票，行程只写在备注里：含 2026-10-04 00:42成都天府国际机场接机
+    # —— 机场接送就是地面交通，按打车处理，才能进对应行程或杭州市内打车票。
+    if extract.remark_service(text).get("service"):
+        return KIND_TAXI
     if "铁路电子客票" in text:
         return KIND_RAIL_REFUND if meta.is_refund else KIND_RAIL
     return KIND_OTHER
@@ -257,9 +277,12 @@ def _location_and_date(
     meta: Meta, itinerary: extract.ItineraryMeta, group: Group, kind: str, full_text: str
 ) -> tuple[str, str]:
     mail_body = f"{group.mail.subject}\n{group.mail.text}"
+    remark = extract.remark_service(full_text)
     if kind == KIND_TAXI:
-        city = "-".join(itinerary.cities) if itinerary.cities else "城市待核"
-        when = itinerary.date or meta.travel_date or meta.issue_date or "日期待核"
+        city = ("-".join(itinerary.cities) if itinerary.cities
+                else remark.get("city") or "城市待核")
+        when = (itinerary.date or remark.get("date") or meta.travel_date
+                or meta.issue_date or "日期待核")
         return city, when
     if kind in (KIND_RAIL, KIND_RAIL_REFUND):
         route = extract.rail_route(full_text)
@@ -270,14 +293,17 @@ def _location_and_date(
     if kind == KIND_HOTEL:
         start, end = extract.hotel_stay(mail_body)
         when = f"{start}至{end}" if start and end and start != end else (start or meta.issue_date or "日期待核")
-        city = extract.hotel_city(group.mail.subject, group.mail.text) or "地点待核"
+        # 顺序：邮件正文 > 销售方地址 > 备注。微信来的票没有正文，只能靠后两者
+        city = (extract.hotel_city(group.mail.subject, group.mail.text)
+                or extract.seller_address_city(full_text)
+                or remark.get("city") or "地点待核")
         return city, when
     if kind == KIND_ENTERTAIN:
         # 餐饮发票正文里不写城市，只能从主题/销售方名称里认（参考实现也是这么做的）。
         city = extract.hotel_city(group.mail.subject, group.mail.text, meta.seller_name) or "地点待核"
         return city, (meta.issue_date or "日期待核")
-    # 其他类：先看「销售方地址」字段（只认这个字段），认不出就是地点待核
-    city = extract.seller_address_city(full_text) or "地点待核"
+    # 其他类：先看「销售方地址」字段，再看结构化备注，都认不出才是地点待核
+    city = extract.seller_address_city(full_text) or remark.get("city") or "地点待核"
     return city, (meta.issue_date or "日期待核")
 
 
@@ -330,6 +356,10 @@ def _build_record(
         mail_subject=group.mail.subject,
         mail_date=group.mail.date,
     )
+    # 开支项目：按开具公司查表；备注：把日程摘要记下来供复核
+    remark = extract.remark_service(raw_text)
+    record.expense_item = expense_item(meta, cfg)
+    record.remark = remark.get("desc", "")
     record.archived_invoice = ""
     record.reasons = _initial_reasons(record, meta, itinerary, itinerary_att, image_att, invoice_pdf, home)
     return record
@@ -359,7 +389,10 @@ def _initial_reasons(
         reasons.append(R_AMOUNT_MISMATCH)
     if invoice_pdf is None:
         reasons.append(R_NO_PDF)
-    if record.kind == KIND_TAXI and itinerary_att is None:
+    # 打车票没有行程单时，本来靠行程单认城市；城市已经从别处认出来了（备注 / 销售方地址），
+    # 这条理由就不成立 —— 再挂"城市待核"就是误判。
+    # 实测：携程「代订附加」备注里写着"成都天府国际机场接机"，城市明确，却被这条挡进存疑。
+    if record.kind == KIND_TAXI and itinerary_att is None and record.location in ("城市待核", "地点待核"):
         reasons.append(R_TAXI_NO_CITY)
     return reasons
 

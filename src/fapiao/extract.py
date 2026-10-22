@@ -270,6 +270,37 @@ def seller_address_city(text: str) -> str:
     return city
 
 
+# 携程的「代订附加」把真正的行程写在备注里：
+#   携程订单:1128151500112049,含2026-10-04 00:42成都天府国际机场接机
+# 这是**结构化备注**，不是正文里散落的城市名，可以放心抽。
+_CTRIP_ORDER = re.compile(
+    r"携程订单[:：]\s*(\d+)[,，]?\s*含\s*"
+    r"(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2})\s*([^\n,，]{2,40})"
+)
+GROUND_SERVICES = ("接机", "送机", "接送", "接站", "送站")
+
+
+def remark_service(text: str) -> dict:
+    """从备注里抽出「什么时间、在哪个城市、做了什么」。抽不出返回空 dict。
+
+    只认携程订单这种**有固定结构**的备注。不对整段正文扫城市名——
+    那样会被开户行「成都双楠支行」骗（见 docs/环境坑位.md 第 24 条）。
+    """
+    match = _CTRIP_ORDER.search(text or "")
+    if not match:
+        return {}
+    description = match.group(6).strip()
+    service = next((word for word in GROUND_SERVICES if word in description), "")
+    return {
+        "order": match.group(1),
+        "date": "%s-%s-%s" % (match.group(2), match.group(3), match.group(4)),
+        "time": match.group(5),
+        "desc": description,
+        "city": hotel_city(description),
+        "service": service,
+    }
+
+
 def looks_like_document_only(text: str, filename: str = "") -> bool:
     """判断这其实是一份「清单」而不是发票。
 

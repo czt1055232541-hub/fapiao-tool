@@ -43,6 +43,8 @@ DEFAULTS: dict = {
         "buyers": [],
         "homeCity": "杭州",
         "tripGapDays": 4,
+        # 开支项目推断表：按「开具公司 / 项目名称」匹配，第一个命中的胜出；没命中的不猜。
+        "expenseItems": [],
     },
     "report": {
         "summaryName": "00_审计摘要.json",

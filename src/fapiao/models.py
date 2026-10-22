@@ -103,6 +103,8 @@ class Record:
     reasons: list[str] = field(default_factory=list)
     inferred_from: str = ""   # 行程是按什么证据推断来的（人工复核要看这个）
     trip_city: str = ""       # 往返机票配对后统一的城市（覆盖 location 推导）
+    expense_item: str = ""    # 开支项目：按「开具公司」查表推断（顺丰->运费、深度求索->Token 充值）
+    remark: str = ""          # 发票备注里能读出来的行程/事由摘要
     category: str = ""
     included: bool = False
     archived_invoice: str = ""
