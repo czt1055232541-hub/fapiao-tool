@@ -55,6 +55,8 @@ _TAXI_WORDS = ("客运服务", "客运服务费", "出租车", "网约车", "运
 _NON_TRAVEL_WORDS = (
     "技术服务", "收派服务", "快递", "会务费", "培训费", "咨询服务",
     "信息服务", "软件", "技术服务费", "设计服务", "印刷",
+    # 材料费：报销时要另附「自购材料清单」（docs/证明材料要求.md 第 2 节）
+    "材料", "耗材", "货物", "试剂", "化学品", "元器件", "五金", "工具",
 )
 
 
@@ -369,6 +371,13 @@ def _build_record(
     record.expense_item = expense_item(meta, cfg)
     record.remark = remark.get("desc", "")
     record.is_airport_transfer = airport_transfer
+    record.needs_material_list = purpose == PURPOSE_OTHER and any(
+        word in " ".join(meta.item_names) for word in ("材料", "耗材", "货物", "试剂", "化学品", "元器件")
+    )
+    # 单张打车费超过门槛的，汇总材料里必须附行程单（浙大报销口径，2026-10 定）。
+    # 只在"打车"上要求：住宿发票的入住单、机票的行程单另有规则。
+    threshold = float((cfg.get("classify") or {}).get("taxiItineraryThreshold") or 200)
+    record.needs_itinerary = kind == KIND_TAXI and record.amount > threshold
     record.archived_invoice = ""
     record.reasons = _initial_reasons(record, meta, itinerary, itinerary_att, image_att, invoice_pdf, home)
     return record

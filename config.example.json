@@ -43,7 +43,8 @@
     "expenseItems": [
       { "match": "顺丰", "item": "运费" },
       { "match": "深度求索", "item": "Token 充值" }
-    ]
+    ],
+    "taxiItineraryThreshold": 200
   },
   "report": {
     "summaryName": "00_审计摘要.json",

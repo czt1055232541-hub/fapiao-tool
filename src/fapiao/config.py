@@ -45,6 +45,8 @@ DEFAULTS: dict = {
         "tripGapDays": 4,
         # 开支项目推断表：按「开具公司 / 项目名称」匹配，第一个命中的胜出；没命中的不猜。
         "expenseItems": [],
+        # 单张打车费超过这个数（元），汇总材料里必须附行程单。
+        "taxiItineraryThreshold": 200,
     },
     "report": {
         "summaryName": "00_审计摘要.json",

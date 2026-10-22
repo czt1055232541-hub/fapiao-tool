@@ -15,7 +15,7 @@ from .textutil import safe_name
 
 EXCEL_HEADER = [
     "序号", "抬头", "用途", "行程日期", "地点或路线", "票据类型", "金额", "发票号码",
-    "归档状态", "金额口径", "归档发票", "计入总额", "分类", "开支项目", "备注",
+    "归档状态", "金额口径", "归档发票", "计入总额", "分类", "开支项目", "需补材料", "备注",
 ]
 
 
@@ -54,6 +54,12 @@ def summary_payload(
         "category_totals": {k: round(sum(r.amount for r in v), 2) for k, v in sorted(categories.items())},
         "category_counts": {k: len(v) for k, v in sorted(categories.items())},
         "分类汇总PDF": merged,
+        # 已计入、但还缺证明材料的票：不影响金额，只提醒去补（如大额打车的行程单）
+        "needsDocs": [
+            {"seq": r.seq, "amount": r.amount, "kind": r.kind,
+             "location": r.location, "missing": missing_docs(r)}
+            for r in included if missing_docs(r)
+        ],
         "skipped": skipped,
     }
 
@@ -81,6 +87,16 @@ def write_records(run_dir: Path, records: list[Record]) -> Path:
     return path
 
 
+def missing_docs(record: Record) -> str:
+    """这票还缺哪张证明材料。依据见 docs/证明材料要求.md。"""
+    missing = []
+    if record.needs_itinerary and not record.archived_itinerary:
+        missing.append("行程单")
+    if record.needs_material_list:
+        missing.append("自购材料清单")
+    return "；".join(missing)
+
+
 def merge_category_pdfs(
     run_dir: Path, records: list[Record], folder_name: str, log=print
 ) -> list[dict]:
@@ -105,6 +121,7 @@ def merge_category_pdfs(
 
         writer = PdfWriter()
         page_count = 0
+        itinerary_pages = 0
         for item in items:
             source = run_dir / item.archived_invoice
             reader = PdfReader(str(source))
@@ -116,6 +133,20 @@ def merge_category_pdfs(
                 writer.add_outline_item(
                     safe_name(f"{item.travel_date}_{item.amount:.2f}元_{source.stem}", 180), start
                 )
+            # 单张大额打车费：把行程单紧跟在发票后面一起交上去（财务要求看里程明细）
+            if item.needs_itinerary and item.archived_itinerary:
+                itinerary = run_dir / item.archived_itinerary
+                if itinerary.is_file():
+                    itin_reader = PdfReader(str(itinerary))
+                    itin_start = page_count
+                    for page in itin_reader.pages:
+                        writer.add_page(page)
+                        page_count += 1
+                        itinerary_pages += 1
+                    if len(itin_reader.pages):
+                        writer.add_outline_item(
+                            safe_name(f"行程单_{item.travel_date}_{item.amount:.2f}元", 180), itin_start
+                        )
         with out_path.open("wb") as handle:
             writer.write(handle)
         check = PdfReader(str(out_path))
@@ -126,9 +157,11 @@ def merge_category_pdfs(
             "invoice_count": len(items),
             "amount": total,
             "page_count": page_count,
+            "itinerary_pages": itinerary_pages,
             "path": str(out_path),
         })
-        log(f"[报告] 合并 {category}：{len(items)} 张 / {total:.2f} 元 / {page_count} 页")
+        extra = f"（含行程单 {itinerary_pages} 页）" if itinerary_pages else ""
+        log(f"[报告] 合并 {category}：{len(items)} 张 / {total:.2f} 元 / {page_count} 页{extra}")
 
     for stale in out_dir.glob("*.pdf"):
         if stale.name not in expected:
@@ -235,10 +268,10 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
         summary_sheet.column_dimensions[column].width = width
 
     audit_sheet["A2"] = "发票归档审计明细"
-    audit_sheet.merge_cells("A2:O2")
+    audit_sheet.merge_cells("A2:P2")
     audit_sheet["A2"].font = title_font
     audit_sheet["A3"] = "黄色行为存疑记录：已归档备查，但不计入报销总额与分类汇总 PDF。"
-    audit_sheet.merge_cells("A3:O3")
+    audit_sheet.merge_cells("A3:P3")
     audit_sheet["A3"].font = note_font
     for column, header in enumerate(EXCEL_HEADER, start=1):
         audit_sheet.cell(row=4, column=column, value=header)
@@ -250,7 +283,7 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
             record.kind, record.amount, record.invoice_number, record.archive_status,
             record.amount_scope + ("（计入）" if record.included else "（剔除）"),
             record.archived_invoice, "是" if record.included else "否", record.category,
-            record.expense_item, record.remark,
+            record.expense_item, missing_docs(record), record.remark,
         ]
         for column, value in enumerate(values, start=1):
             cell = audit_sheet.cell(row=r, column=column, value=value)
@@ -269,8 +302,8 @@ def write_excel(run_dir: Path, name: str, records: list[Record], summary: dict, 
         audit_sheet.cell(row=r, column=7).number_format = "#,##0.00"
         audit_sheet.cell(row=r, column=8).number_format = "@"
     audit_sheet.freeze_panes = "D5"
-    for column, width in zip("ABCDEFGHIJKLMNO",
-                             (7, 13, 18, 24, 27, 16, 12, 24, 12, 23, 70, 12, 28, 16, 34)):
+    for column, width in zip("ABCDEFGHIJKLMNOP",
+                             (7, 13, 18, 24, 27, 16, 12, 24, 12, 23, 70, 12, 28, 16, 14, 34)):
         audit_sheet.column_dimensions[column].width = width
     audit_sheet.row_dimensions[4].height = 32
 

@@ -97,6 +97,33 @@ class TestAirportTransfer(unittest.TestCase):
         self.assertEqual(classify.adopt_orphan_by_date([taxi], [cluster], CFG), 0)
 
 
+class TestMissingDocs(unittest.TestCase):
+    """单张大额打车要行程单；材料费要自购材料清单（依据见 docs/证明材料要求.md）。"""
+
+    def test_high_value_taxi_without_itinerary_needs_one(self):
+        from fapiao import report
+
+        record = rec(kind=classify.KIND_TAXI, amount=270.0, needs_itinerary=True)
+        self.assertEqual(report.missing_docs(record), "行程单")
+
+    def test_high_value_taxi_with_itinerary_is_complete(self):
+        from fapiao import report
+
+        record = rec(kind=classify.KIND_TAXI, amount=270.0, needs_itinerary=True,
+                     archived_itinerary="x/行程单.pdf")
+        self.assertEqual(report.missing_docs(record), "")
+
+    def test_low_value_taxi_needs_nothing(self):
+        from fapiao import report
+
+        self.assertEqual(report.missing_docs(rec(kind=classify.KIND_TAXI, amount=19.46)), "")
+
+    def test_material_invoice_needs_list(self):
+        from fapiao import report
+
+        self.assertEqual(report.missing_docs(rec(needs_material_list=True)), "自购材料清单")
+
+
 class TestExpenseItemTable(unittest.TestCase):
     CFG2 = {"classify": {"expenseItems": [
         {"match": "顺丰", "item": "运费"},

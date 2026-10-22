@@ -106,6 +106,8 @@ class Record:
     expense_item: str = ""    # 开支项目：按「开具公司」查表推断（顺丰->运费、深度求索->Token 充值）
     remark: str = ""          # 发票备注里能读出来的行程/事由摘要
     is_airport_transfer: bool = False  # 接送机：算差旅，不算杭州市内通勤
+    needs_itinerary: bool = False      # 单张打车费超过门槛，汇总材料里必须附行程单
+    needs_material_list: bool = False  # 材料费：报销时要另附自购材料清单
     category: str = ""
     included: bool = False
     archived_invoice: str = ""
