@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import archive, classify, config, exclusions, mailfetch, report, wechatfetch
+from . import archive, classify, config, exclusions, extract, mailfetch, report, wechatfetch
 from .models import Group, Record
 from .textutil import month_range
 
@@ -87,6 +87,7 @@ def run(
     # ---------- 2. 解析 + 3. 归类 ----------
     records: list[Record] = []
     supporting_docs: list[dict] = []
+    car_candidates: list[dict] = []
     orphan_itineraries: list[tuple[str, str]] = []
     skipped = {
         "mails": [], "attachments": [], "duplicates": [], "orphan_itineraries": [],
@@ -102,6 +103,12 @@ def run(
                     "reason": "附件没有对应的发票版式文件（PDF），未纳入整理",
                 })
             for att in group.itineraries:
+                # 携程「用车行程单」是单独一封邮件（只有行程单、没有发票）。
+                # 它是接送机打车票要交的证明材料，先收着，等发票解析完按日期配对。
+                car = _car_candidate(att)
+                if car is not None:
+                    car_candidates.append(car)
+                    continue
                 skipped["orphan_itineraries"].append({
                     "mail_uid": group.mail.uid,
                     "subject": group.mail.subject,
@@ -129,6 +136,7 @@ def run(
                 })
 
     _attach_supporting(records, supporting_docs, skipped, log)
+    _attach_car_itineraries(records, car_candidates, skipped, log)
 
     # ---------- 排除清单（作废 / 交由他人报销 / 月中已报销） ----------
     table = exclusions.load(archive_cfg.get("exclusionsFile") or None)
@@ -258,6 +266,61 @@ def _apply_year_scope(records: list[Record], include_since_year: int | None) -> 
         if year and year < include_since_year:
             record.included = False
             record.archive_status = "已归档"
+
+
+def _car_candidate(att) -> dict | None:
+    """把一份附件认成「携程用车行程单」并抽出配对要用的信息。不是就返回 None。"""
+    if not att.path:
+        return None
+    text, _, _ = classify._text_of(att.path)
+    info = extract.car_itinerary(text)
+    if not info:
+        return None
+    return {"path": att.path, "filename": att.filename,
+            "date": info["date"], "time": info.get("time", ""),
+            "order": info.get("order", ""), "route": f"{info.get('from','')}→{info.get('to','')}"}
+
+
+def _attach_car_itineraries(records: list[Record], candidates: list[dict],
+                            skipped: dict, log=print) -> int:
+    """把单独寄来的用车行程单，按「用车日期」挂到需要它的打车票上。
+
+    只在**同一天只有一张**待补行程单的打车票、且**同一天只有一份**用车行程单时才动手。
+    对不上就不挂，宁可留「缺行程单」让人去补 —— 挂错比不挂更难发现。
+    """
+    if not candidates:
+        return 0
+    needy = [r for r in records if r.needs_itinerary and not r.source_itinerary]
+    by_date: dict[str, list[Record]] = {}
+    for record in needy:
+        by_date.setdefault(record.travel_date, []).append(record)
+    cand_by_date: dict[str, list[dict]] = {}
+    for item in candidates:
+        cand_by_date.setdefault(item["date"], []).append(item)
+
+    attached = 0
+    used: set[int] = set()
+    for day, items in by_date.items():
+        pool = cand_by_date.get(day, [])
+        if len(items) != 1 or len(pool) != 1:
+            continue
+        record, cand = items[0], pool[0]
+        record.source_itinerary = cand["path"]
+        record.inferred_from = (record.inferred_from + "；" if record.inferred_from else "") + \
+            f"行程单配对：{day} {cand['time']} 的携程用车行程单（订单号 {cand['order']}，{cand['route']}）"
+        attached += 1
+        used.add(id(cand))
+        log(f"[材料] {record.invoice_number[-6:]} 补上用车行程单：{day} {cand['time']} {cand['route']}")
+
+    # 没用上的也要留痕：可能是金额没到门槛、或那天对不上 —— 不许静默丢
+    for cand in candidates:
+        if id(cand) not in used:
+            skipped["orphan_itineraries"].append({
+                "filename": cand["filename"],
+                "reason": (f"用车行程单（{cand['date']} {cand['time']} {cand['route']}）"
+                           f"没找到需要它的发票：金额未达需附行程单的门槛，或日期对不上"),
+            })
+    return attached
 
 
 def _attach_supporting(records: list[Record], docs: list[dict], skipped: dict, log=print) -> None:

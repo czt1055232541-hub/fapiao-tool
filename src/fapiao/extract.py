@@ -301,6 +301,36 @@ def remark_service(text: str) -> dict:
     }
 
 
+# 携程「用车行程单」（接送机）：单独一封邮件，只有行程单没有发票
+_CAR_TIME = re.compile(r"用车时间[:：]\s*(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})")
+# 行程单的 PDF 抽出来是一整行、字段之间只有空格，所以每个字段都要「遇到下一个字段就停」，
+# 否则贪婪匹配会把后半张单子全吞进来（实测踩过）
+_CAR_STOP = r"(?=\s*(?:下车点|类型|用车时间|车牌号码|车辆信息|费用明细|订单费用|开具日期))"
+_CAR_FIELD = {
+    "order": re.compile(r"订单号[:：]\s*(\d{10,})"),
+    "from": re.compile(r"上车点[:：]\s*(.{2,40}?)" + _CAR_STOP),
+    "to": re.compile(r"下车点[:：]\s*(.{2,40}?)" + _CAR_STOP),
+    "service": re.compile(r"类型[:：]\s*(接机|送机|接送|接站|送站)"),
+    "amount": re.compile(r"实际费用[:：]\s*CNY\s*([0-9.]+)"),
+}
+
+
+def car_itinerary(text: str) -> dict:
+    """从「携程用车行程单」里抽出订单号、用车时间、起止点、金额。不是用车单返回空 dict。"""
+    match = _CAR_TIME.search(text or "")
+    if not match:
+        return {}
+    out = {
+        "date": "%s-%s-%s" % (match.group(1), match.group(2), match.group(3)),
+        "time": "%02d:%s" % (int(match.group(4)), match.group(5)),
+    }
+    for key, pattern in _CAR_FIELD.items():
+        found = pattern.search(text or "")
+        if found:
+            out[key] = found.group(1).strip()
+    return out
+
+
 def invoice_number_of(text: str) -> str:
     """从任意文本里取第一个 20 位发票号码（用来把运单明细挂回它的发票）。"""
     match = re.search(r"(?<!\d)(\d{20})(?!\d)", text or "")

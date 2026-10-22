@@ -97,6 +97,72 @@ class TestAirportTransfer(unittest.TestCase):
         self.assertEqual(classify.adopt_orphan_by_date([taxi], [cluster], CFG), 0)
 
 
+CAR_ITINERARY = ("用车行程单 开具日期：2026-10-08 订单号： 1128151254897166 上车点： 天府国际机场 T2 "
+                "下车点： 遂宁永正国际酒店 类型： 接机 用车时间： 2026-10-04 00:50:00 "
+                "车辆信息 车牌号码： 川AAD5989 费用明细 订单费用： CNY 330 实际费用： CNY 280")
+
+
+class TestCarItinerary(unittest.TestCase):
+    """携程「用车行程单」是单独一封邮件，只有行程单没有发票，靠日期配对。"""
+
+    def test_parses_all_fields(self):
+        info = extract.car_itinerary(CAR_ITINERARY)
+        self.assertEqual(info["order"], "1128151254897166")
+        self.assertEqual(info["date"], "2026-10-04")
+        self.assertEqual(info["time"], "00:50")
+        self.assertEqual(info["from"], "天府国际机场 T2", "字段必须遇到下一个字段就停，不能贪婪")
+        self.assertEqual(info["to"], "遂宁永正国际酒店")
+        self.assertEqual(info["service"], "接机")
+        self.assertEqual(info["amount"], "280")
+
+    def test_non_car_document_returns_empty(self):
+        self.assertEqual(extract.car_itinerary("普通火车票行程单 2026-10-08"), {})
+
+
+class TestCarItineraryPairing(unittest.TestCase):
+    def _pipeline(self):
+        from fapiao import pipeline
+
+        return pipeline
+
+    def test_unique_candidate_is_attached(self):
+        pl = self._pipeline()
+        record = rec(kind=classify.KIND_TAXI, amount=270.0, needs_itinerary=True,
+                     travel_date="2026-10-04", invoice_number="2631700000")
+        skipped = {"orphan_itineraries": []}
+        moved = pl._attach_car_itineraries(
+            [record],
+            [{"path": "it.pdf", "filename": "a.pdf", "date": "2026-10-04", "time": "00:50",
+              "order": "1", "route": "天府→遂宁"}],
+            skipped, log=lambda *_a, **_k: None)
+        self.assertEqual(moved, 1)
+        self.assertEqual(record.source_itinerary, "it.pdf")
+        self.assertIn("行程单配对", record.inferred_from)
+
+    def test_ambiguous_day_is_not_guessed(self):
+        pl = self._pipeline()
+        a = rec(kind=classify.KIND_TAXI, amount=270.0, needs_itinerary=True,
+                travel_date="2026-10-04", invoice_number="A")
+        b = rec(kind=classify.KIND_TAXI, amount=300.0, needs_itinerary=True,
+                travel_date="2026-10-04", invoice_number="B")
+        skipped = {"orphan_itineraries": []}
+        cand = {"path": "it.pdf", "filename": "a.pdf", "date": "2026-10-04",
+                "time": "00:50", "order": "1", "route": "x"}
+        self.assertEqual(pl._attach_car_itineraries([a, b], [cand], skipped,
+                                                    log=lambda *_a, **_k: None), 0)
+        self.assertEqual(a.source_itinerary, "")
+
+    def test_unused_itinerary_is_traced(self):
+        pl = self._pipeline()
+        skipped = {"orphan_itineraries": []}
+        pl._attach_car_itineraries([], [{"path": "it.pdf", "filename": "a.pdf",
+                                         "date": "2026-10-05", "time": "19:07",
+                                         "order": "1", "route": "萧山→紫金港"}],
+                                   skipped, log=lambda *_a, **_k: None)
+        self.assertEqual(len(skipped["orphan_itineraries"]), 1)
+        self.assertIn("没找到需要它的发票", skipped["orphan_itineraries"][0]["reason"])
+
+
 class TestSupportingDocs(unittest.TestCase):
     """顺丰的「运单明细」不是发票，但是报销要的订单收据，要挂在发票后面。"""
 
