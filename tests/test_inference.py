@@ -64,6 +64,39 @@ class TestRemarkTurnsIntoTaxi(unittest.TestCase):
         self.assertEqual(classify.detect_kind(meta, False, "无备注"), classify.KIND_OTHER)
 
 
+class TestAirportTransfer(unittest.TestCase):
+    """机场接送是"这趟出差的头尾"，算差旅，不算杭州市内通勤。"""
+
+    def test_pickup_at_airport_is_flagged(self):
+        info = extract.remark_service(CTRIP_REMARK)
+        self.assertTrue(classify._is_airport_transfer(info))
+
+    def test_service_without_airport_is_not_flagged(self):
+        self.assertFalse(classify._is_airport_transfer({"service": "接机", "desc": "某某酒店接机"}))
+
+    def test_empty_remark_is_not_flagged(self):
+        self.assertFalse(classify._is_airport_transfer({}))
+
+    def test_airport_transfer_is_adopted_by_date(self):
+        """城市是杭州（本城），按城市聚类分不进任何行程，只能按日期归入。"""
+        cluster = classify.TripCluster(
+            index=1, city="成都", start="2026-10-04", end="2026-10-08",
+            route="杭州-成都-杭州", members=["FLIGHT"])
+        transfer = rec(kind=classify.KIND_TAXI, invoice_number="T", location="杭州",
+                       travel_date="2026-10-05", is_airport_transfer=True,
+                       reasons=[classify.R_TRIP_OPEN])
+        self.assertEqual(classify.adopt_orphan_by_date([transfer], [cluster], CFG), 1)
+        self.assertEqual(transfer.trip_folder, "01_2026-10-04_至_2026-10-08_成都差旅_杭州-成都-杭州")
+
+    def test_plain_taxi_is_not_adopted(self):
+        cluster = classify.TripCluster(
+            index=1, city="成都", start="2026-10-04", end="2026-10-08",
+            route="杭州-成都-杭州", members=["FLIGHT"])
+        taxi = rec(kind=classify.KIND_TAXI, invoice_number="T2", location="杭州",
+                   travel_date="2026-10-05", reasons=[classify.R_TRIP_OPEN])
+        self.assertEqual(classify.adopt_orphan_by_date([taxi], [cluster], CFG), 0)
+
+
 class TestExpenseItemTable(unittest.TestCase):
     CFG2 = {"classify": {"expenseItems": [
         {"match": "顺丰", "item": "运费"},

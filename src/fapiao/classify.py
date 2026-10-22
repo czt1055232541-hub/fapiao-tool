@@ -236,6 +236,11 @@ def _is_non_travel(meta: Meta) -> bool:
     return any(word in joined for word in _NON_TRAVEL_WORDS)
 
 
+def _is_airport_transfer(remark: dict) -> bool:
+    """备注里写明机场接送（成都天府国际机场接机 / 杭州萧山国际机场送机）。"""
+    return bool(remark.get("service")) and "机场" in str(remark.get("desc") or "")
+
+
 def expense_item(meta: Meta, cfg: dict) -> str:
     """按「开具公司 / 项目名称」查表推断开支项目。
 
@@ -329,12 +334,16 @@ def _build_record(
     if amount is None and image_att is not None:
         amount = 0.0
 
+    remark = extract.remark_service(raw_text)
+    airport_transfer = _is_airport_transfer(remark)
+
     if kind == KIND_ENTERTAIN:
         purpose = PURPOSE_ENTERTAIN
     elif kind == KIND_OTHER and _is_non_travel(meta):
         # 技术服务 / 快递收派这类与出行无关的：归其他费用，不要求行程闭环
         purpose = PURPOSE_OTHER
-    elif kind == KIND_TAXI and location == home:
+    elif kind == KIND_TAXI and location == home and not airport_transfer:
+        # 机场接送是"这趟出差的头尾"，不是日常通勤 —— 即使落在杭州也算差旅费
         purpose = PURPOSE_TAXI_CITY
     else:
         purpose = PURPOSE_TRIP
@@ -357,9 +366,9 @@ def _build_record(
         mail_date=group.mail.date,
     )
     # 开支项目：按开具公司查表；备注：把日程摘要记下来供复核
-    remark = extract.remark_service(raw_text)
     record.expense_item = expense_item(meta, cfg)
     record.remark = remark.get("desc", "")
+    record.is_airport_transfer = airport_transfer
     record.archived_invoice = ""
     record.reasons = _initial_reasons(record, meta, itinerary, itinerary_att, image_att, invoice_pdf, home)
     return record
@@ -613,14 +622,17 @@ def propagate_batch_trips(records: list[Record], cfg: dict, log=None) -> int:
 
 def adopt_orphan_by_date(records: list[Record], clusters: list[TripCluster], cfg: dict,
                          gap_days: int = 7, log=None) -> int:
-    """住宿票若没有任何行程归属，且窗口内只有**唯一一个**候选行程，就归入它。
+    """住宿票 / 机场接送票若没有行程归属，且窗口内只有**唯一一个**候选行程，就归入它。
 
-    住宿票必然发生在某次出行中，但票面既没有城市也没有入住日期。
+    这两类天生与行程强相关，但票面不一定带得出城市：
+    - 住宿票既没有城市也没有入住日期（微信来的更没有邮件正文）；
+    - 机场接送票的城市是杭州（本城），按城市聚类分不进任何行程。
     只有当候选行程唯一时才动手（多个候选 = 猜，宁可留着）。
     """
     orphans = [
         r for r in records
-        if r.purpose == PURPOSE_TRIP and r.kind == KIND_HOTEL and not r.trip_folder
+        if r.purpose == PURPOSE_TRIP and not r.trip_folder
+        and (r.kind == KIND_HOTEL or r.is_airport_transfer)
     ]
     moved = 0
     for record in orphans:
