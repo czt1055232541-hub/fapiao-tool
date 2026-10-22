@@ -29,6 +29,19 @@
 python scripts/preview.py --run-date 2026-10-20    # 会逐条打印微信入站目录的"跳过留痕"
 ```
 
+## 定期清理（省空间）
+
+```bash
+python scripts/cleanup.py                 # 预演，看能省多少
+python scripts/cleanup.py --apply         # 真删
+```
+
+清的是**能重新生成的**东西：`data/staging/`（每次运行复制进来的附件，默认保留最近 1 次）、
+`data/logs/` 里超过 90 天的日志、单测残余、`__pycache__`。
+
+**归档目录、config.json、exclusions.json 永远不会被删。**
+注意：删掉 staging 后，`--replay` 要先重新采集一次。
+
 ## 跑完之后：复核（必须做）
 
 自动跑出来的归档**不能直接用**。每次运行结束后：
